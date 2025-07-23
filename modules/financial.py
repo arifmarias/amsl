@@ -695,10 +695,80 @@ def delete_projection(project_id):
         db_ops.close()
 
 # Placeholder functions for other tabs
-
+def show_created_disbursement_summary():
+    """Show summary of just created disbursement - OUTSIDE FORM CONTEXT"""
+    st.subheader("📊 Disbursement Created Successfully!")
+    
+    disbursement_info = st.session_state.disbursement_created['disbursement']
+    receipt_info = st.session_state.disbursement_created['receipt']
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 💸 Disbursement Details")
+        st.info(f"""
+        **Disbursement ID:** #{disbursement_info['id']}  
+        **Type:** {disbursement_info['type'].replace('_', ' ').title()}  
+        **Amount:** ৳{disbursement_info['amount']:,.2f}  
+        **Date:** {disbursement_info['date'].strftime('%Y-%m-%d %H:%M')}  
+        **Description:** {disbursement_info['description']}
+        """)
+    
+    with col2:
+        st.markdown("### 📄 Money Receipt Details")
+        st.info(f"""
+        **Receipt Number:** {receipt_info['number']}  
+        **Amount:** ৳{receipt_info['amount']:,.2f}  
+        **Received From:** {receipt_info['received_from']}  
+        **Received By:** {receipt_info['received_by']}  
+        **Receipt Date:** {receipt_info['date'].strftime('%Y-%m-%d')}
+        """)
+    
+    # Action buttons - OUTSIDE FORM CONTEXT, so safe to use
+    st.markdown("### 📋 Actions")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("📄 Download Receipt PDF", use_container_width=True):
+            # Create a temporary receipt object for PDF generation
+            class TempReceipt:
+                def __init__(self, receipt_data):
+                    self.receipt_number = receipt_data['number']
+                    self.amount = receipt_data['amount']
+                    self.received_from = receipt_data['received_from']
+                    self.received_by = receipt_data['received_by']
+                    self.receipt_date = receipt_data['date']
+            
+            temp_receipt = TempReceipt(receipt_info)
+            generate_receipt_pdf(temp_receipt)
+    
+    with col2:
+        if st.button("➕ Create Another", use_container_width=True):
+            # Clear the summary and show form again
+            del st.session_state.disbursement_created
+            st.session_state.show_disbursement_form = True
+            st.rerun()
+    
+    with col3:
+        if st.button("📋 View All Disbursements", use_container_width=True):
+            # Clear the summary and return to overview
+            del st.session_state.disbursement_created
+            st.rerun()
+    
+    with col4:
+        if st.button("🏠 Back to Financial", use_container_width=True):
+            # Clear the summary and return to financial overview
+            del st.session_state.disbursement_created
+            st.rerun()
+            
 def show_disbursement_management():
-    """Enhanced disbursement management with three types"""
+    """Enhanced disbursement management with three types - FIXED VERSION"""
     st.subheader("💸 Disbursement Management")
+    
+    # Show disbursement summary if just created
+    if st.session_state.get('disbursement_created'):
+        show_created_disbursement_summary()
+        return
     
     # Handle disbursement form display
     if st.session_state.get('show_disbursement_form'):
@@ -972,7 +1042,7 @@ def validate_advance_disbursement(project_id, amount):
         
 def create_disbursement(project_id, disbursement_type, amount, disbursement_date, 
                        description, received_from, received_by):
-    """Create disbursement and auto-generate money receipt"""
+    """Create disbursement and auto-generate money receipt - FIXED VERSION"""
     
     db_ops = DatabaseOperations()
     user = AuthenticationManager.get_current_user()
@@ -1006,10 +1076,25 @@ def create_disbursement(project_id, disbursement_type, amount, disbursement_date
         st.success(f"📄 Money Receipt #{receipt_number} generated automatically!")
         st.balloons()
         
-        # Show disbursement summary
-        show_disbursement_summary(disbursement, money_receipt)
+        # Store the disbursement and receipt info in session state to show summary outside the form
+        st.session_state.disbursement_created = {
+            'disbursement': {
+                'id': disbursement.id,
+                'type': disbursement.disbursement_type,
+                'amount': disbursement.amount,
+                'date': disbursement.disbursement_date,
+                'description': disbursement.description
+            },
+            'receipt': {
+                'number': money_receipt.receipt_number,
+                'amount': money_receipt.amount,
+                'received_from': money_receipt.received_from,
+                'received_by': money_receipt.received_by,
+                'date': money_receipt.receipt_date
+            }
+        }
         
-        # Clear form and return
+        # Clear form and return - this will trigger a rerun
         del st.session_state.show_disbursement_form
         st.rerun()
         
