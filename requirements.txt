@@ -1,0 +1,8 @@
+streamlit
+SQLAlchemy
+pandas
+plotly
+bcrypt
+reportlab
+Pillow
+python-dateutil
