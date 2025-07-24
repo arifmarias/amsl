@@ -47,7 +47,7 @@ def show_invoice_management():
     show_invoice_management_interface()
 
 def show_invoice_management_interface():
-    """Main invoice management interface"""
+    """Main invoice management interface - FIXED SESSION ISSUE"""
     
     # Get projects that can have invoices created
     db_ops = DatabaseOperations()
@@ -58,179 +58,186 @@ def show_invoice_management_interface():
             st.warning("⚠️ No projects found. Please create projects first.")
             return
         
-        # Separate projects by invoice status
-        # Safely extract project data with company relationships
-        projects_ready_for_invoice = []
-        projects_with_invoices = []
-        projects_not_ready = []
-        
+        # Process projects and extract all needed data while session is active
+        processed_projects = []
         for project in projects:
-            # Extract company data while session is active
-            po_issuing_company_name = project.po_issuing_company.name if project.po_issuing_company else 'N/A'
-            po_issuing_company_id = project.po_issuing_company_id
-            
-            # Create safe project data
-            safe_project_data = {
+            # Extract all data we need while session is active
+            project_data = {
                 'id': project.id,
                 'project_name': project.project_name,
                 'po_number': project.po_number,
                 'status': project.status,
                 'final_po_value': project.final_po_value or 0,
-                'total_po_value': project.total_po_value or 0,
                 'vat_amount': project.vat_amount or 0,
                 'ait_amount': project.ait_amount or 0,
                 'invoice_submission_date': project.invoice_submission_date,
                 'final_bill_collection_date': project.final_bill_collection_date,
-                'po_issuing_company_name': po_issuing_company_name,
-                'po_issuing_company_id': po_issuing_company_id,
-                'supplier_company_id': project.supplier_company_id
+                'client_name': project.po_issuing_company.name if project.po_issuing_company else 'N/A',
+                'client_id': project.po_issuing_company_id
             }
-            
-            if project.status == 'cancelled':
-                continue
-            elif project.status == 'invoice_submitted':
-                projects_with_invoices.append(safe_project_data)
-            elif project.status in ['active'] and (project.final_po_value or 0) > 0:
-                projects_ready_for_invoice.append(safe_project_data)
-            else:
-                projects_not_ready.append(safe_project_data)
-        
-        # Statistics
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Projects", len(projects))
-        
-        with col2:
-            st.metric("Ready for Invoice", len(projects_ready_for_invoice))
-        
-        with col3:
-            st.metric("Invoices Created", len(projects_with_invoices))
-        
-        with col4:
-            pending_invoices = len(projects_ready_for_invoice)
-            st.metric("Pending Invoices", pending_invoices)
-        
-        # Invoice Due Date Tracking
-        show_invoice_due_date_tracker()
-        st.markdown("---")
-        # Projects ready for invoice creation
-        if projects_ready_for_invoice:
-            st.markdown("### 📝 Projects Ready for Invoice Creation")
-            st.info("💡 These projects are ready to have invoices created.")
-            
-            for project_data in projects_ready_for_invoice:
-                with st.expander(f"🚀 {project_data['project_name']} - Create Invoice"):
-                    
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.info(f"""
-                        **Project:** {project_data['project_name']}  
-                        **Client:** {project_data['po_issuing_company_name']}  
-                        **PO:** {project_data['po_number'] or 'N/A'}  
-                        **Status:** {project_data['status'].title()}
-                        """)
-                    
-                    with col2:
-                        st.metric("Project Value", f"৳{project_data['final_po_value']:,.2f}")
-                        st.metric("VAT Amount", f"৳{project_data['vat_amount']:,.2f}")
-                        st.metric("AIT Amount", f"৳{project_data['ait_amount']:,.2f}")
-                    
-                    with col3:
-                        if st.button("📄 Create Invoice", key=f"create_invoice_{project_data['id']}"):
-                            st.session_state.invoice_project_id = project_data['id']
-                            st.session_state.show_invoice_form = True
-                            st.rerun()
-        
-        # Projects with existing invoices
-        if projects_with_invoices:
-            st.markdown("### 📄 Projects with Invoices")
-            
-            for project_data in projects_with_invoices:
-                with st.expander(f"📄 {project_data['project_name']} - Invoice Created"):
-                    
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.success(f"""
-                        **Status:** ✅ Invoice Submitted  
-                        **Project:** {project_data['project_name']}  
-                        **Client:** {project_data['po_issuing_company_name']}  
-                        **PO:** {project_data['po_number'] or 'N/A'}
-                        """)
-                    
-                    with col2:
-                        st.metric("Invoice Amount", f"৳{project_data['final_po_value']:,.2f}")
-                        if project_data['invoice_submission_date']:
-                            st.metric("Submitted On", project_data['invoice_submission_date'].strftime('%Y-%m-%d'))
-                        
-                        # Show payment terms
-                        if project_data['invoice_submission_date'] and project_data['final_bill_collection_date']:
-                            payment_days = (project_data['final_bill_collection_date'] - project_data['invoice_submission_date']).days
-                            if payment_days == 0:
-                                payment_terms_display = "Due on Receipt"
-                            else:
-                                payment_terms_display = f"Net {payment_days}"
-                            st.metric("Payment Terms", payment_terms_display)
-                    
-                    with col3:
-                        col_a, col_b = st.columns(2)
-                        
-                        with col_a:
-                            if st.button("👀 View Invoice", key=f"view_invoice_{project_data['id']}"):
-                                st.session_state.view_invoice_id = project_data['id']
-                                st.rerun()
-                        
-                        with col_b:
-                            if st.button("📥 Download", key=f"download_invoice_{project_data['id']}"):
-                                # Need to get full project object for PDF generation
-                                full_project = db_ops.get_project_by_id(project_data['id'])
-                                if full_project:
-                                    generate_invoice_pdf(full_project)
-        
-        # Projects not ready for invoicing
-        if projects_not_ready:
-            st.markdown("### ⏳ Projects Not Ready for Invoice")
-            st.warning("These projects need to be activated and have proper financial data before invoices can be created.")
-            
-            for project_data in projects_not_ready[:5]:  # Show first 5
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    reason = get_invoice_readiness_reason_from_data(project_data)
-                    st.write(f"• **{project_data['project_name']}** - {reason}")
-                with col2:
-                    st.caption(f"Status: {project_data['status'].title()}")
-            
-            if len(projects_not_ready) > 5:
-                st.caption(f"... and {len(projects_not_ready) - 5} more projects")
+            processed_projects.append(project_data)
         
     except Exception as e:
-        st.error(f"Error loading invoice management: {str(e)}")
+        st.error(f"Error loading projects: {str(e)}")
+        return
     finally:
         db_ops.close()
+    
+    # Now work with processed data (no database session needed)
+    projects_ready_for_invoice = []
+    projects_with_invoices = []
+    projects_not_ready = []
+    
+    for project_data in processed_projects:
+        if project_data['status'] == 'cancelled':
+            continue
+        elif project_data['status'] == 'invoice_submitted':
+            projects_with_invoices.append(project_data)
+        elif project_data['status'] in ['active'] and project_data['final_po_value'] > 0:
+            projects_ready_for_invoice.append(project_data)
+        else:
+            projects_not_ready.append(project_data)
+    
+    # Statistics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Projects", len(processed_projects))
+    
+    with col2:
+        st.metric("Ready for Invoice", len(projects_ready_for_invoice))
+    
+    with col3:
+        st.metric("Invoices Created", len(projects_with_invoices))
+    
+    with col4:
+        pending_invoices = len(projects_ready_for_invoice)
+        st.metric("Pending Invoices", pending_invoices)
+    
+    # Invoice Due Date Tracking
+    show_invoice_due_date_tracker()
+    
+    st.markdown("---")  # Add separator
+    
+    # Projects ready for invoice creation
+    if projects_ready_for_invoice:
+        st.markdown("### 📝 Projects Ready for Invoice Creation")
+        st.info("💡 These projects are ready to have invoices created.")
         
+        for project_data in projects_ready_for_invoice:
+            with st.expander(f"🚀 {project_data['project_name']} - Create Invoice"):
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.info(f"""
+                    **Project:** {project_data['project_name']}  
+                    **Client:** {project_data['client_name']}  
+                    **PO:** {project_data['po_number'] or 'N/A'}  
+                    **Status:** {project_data['status'].title()}
+                    """)
+                
+                with col2:
+                    st.metric("Project Value", f"৳{project_data['final_po_value']:,.2f}")
+                    st.metric("VAT Amount", f"৳{project_data['vat_amount']:,.2f}")
+                    st.metric("AIT Amount", f"৳{project_data['ait_amount']:,.2f}")
+                
+                with col3:
+                    if st.button("📄 Create Invoice", key=f"create_invoice_{project_data['id']}"):
+                        st.session_state.invoice_project_id = project_data['id']
+                        st.session_state.show_invoice_form = True
+                        st.rerun()
+    
+    # Projects with existing invoices
+    if projects_with_invoices:
+        st.markdown("### 📄 Projects with Invoices")
+        
+        for project_data in projects_with_invoices:
+            with st.expander(f"📄 {project_data['project_name']} - Invoice Created"):
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.success(f"""
+                    **Status:** ✅ Invoice Submitted  
+                    **Project:** {project_data['project_name']}  
+                    **Client:** {project_data['client_name']}  
+                    **PO:** {project_data['po_number'] or 'N/A'}
+                    """)
+                
+                with col2:
+                    st.metric("Invoice Amount", f"৳{project_data['final_po_value']:,.2f}")
+                    if project_data['invoice_submission_date']:
+                        st.metric("Submitted On", project_data['invoice_submission_date'].strftime('%Y-%m-%d'))
+                    
+                    # Show payment terms
+                    if project_data['invoice_submission_date'] and project_data['final_bill_collection_date']:
+                        payment_days = (project_data['final_bill_collection_date'] - project_data['invoice_submission_date']).days
+                        if payment_days == 0:
+                            payment_terms_display = "Due on Receipt"
+                        else:
+                            payment_terms_display = f"Net {payment_days}"
+                        st.metric("Payment Terms", payment_terms_display)
+                
+                with col3:
+                    col_a, col_b = st.columns(2)
+                    
+                    with col_a:
+                        if st.button("👀 View Invoice", key=f"view_invoice_{project_data['id']}"):
+                            st.session_state.view_invoice_id = project_data['id']
+                            st.rerun()
+                    
+                    with col_b:
+                        if st.button("📥 Download", key=f"download_invoice_{project_data['id']}"):
+                            # Create a temporary project object for PDF generation
+                            temp_project = type('Project', (), project_data)()
+                            # Add necessary attributes for PDF generation
+                            temp_project.po_issuing_company = type('Company', (), {
+                                'name': project_data['client_name'],
+                                'address': None,
+                                'phone': None,
+                                'email': None
+                            })()
+                            temp_project.supplier_company_id = None
+                            generate_invoice_pdf(temp_project)
+    
+    # Projects not ready for invoicing
+    if projects_not_ready:
+        st.markdown("### ⏳ Projects Not Ready for Invoice")
+        st.warning("These projects need to be activated and have proper financial data before invoices can be created.")
+        
+        for project_data in projects_not_ready[:5]:  # Show first 5
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                reason = get_invoice_readiness_reason_from_data(project_data)
+                st.write(f"• **{project_data['project_name']}** - {reason}")
+            with col2:
+                st.caption(f"Status: {project_data['status'].title()}")
+        
+        if len(projects_not_ready) > 5:
+            st.caption(f"... and {len(projects_not_ready) - 5} more projects")
+
 def get_invoice_readiness_reason_from_data(project_data):
-    """Get reason why project is not ready for invoice (from extracted data)"""
+    """Get reason why project is not ready for invoice from processed data"""
     if project_data['status'] == 'new':
         return "Project is still new - needs financial projections"
-    elif not project_data['final_po_value'] or project_data['final_po_value'] <= 0:
+    elif project_data['final_po_value'] <= 0:
         return "No project value defined"
     elif project_data['status'] == 'completed':
         return "Project already completed"
     else:
         return f"Status: {project_data['status']}"
 
-# def get_invoice_readiness_reason(project):
-#     """Get reason why project is not ready for invoice"""
-#     if project.status == 'new':
-#         return "Project is still new - needs financial projections"
-#     elif not project.final_po_value or project.final_po_value <= 0:
-#         return "No project value defined"
-#     elif project.status == 'completed':
-#         return "Project already completed"
-#     else:
-#         return f"Status: {project.status}"
+def get_invoice_readiness_reason(project):
+    """Get reason why project is not ready for invoice"""
+    if project.status == 'new':
+        return "Project is still new - needs financial projections"
+    elif not project.final_po_value or project.final_po_value <= 0:
+        return "No project value defined"
+    elif project.status == 'completed':
+        return "Project already completed"
+    else:
+        return f"Status: {project.status}"
 
 def show_invoice_creation_form():
     """Show invoice creation form"""
@@ -288,49 +295,39 @@ def show_invoice_creation_form():
                 )
             
             with col2:
+                payment_terms = st.selectbox(
+                    "Payment Terms",
+                    ["Net 30", "Net 15", "Net 7", "Due on Receipt", "Custom"],
+                    help="Payment terms for the invoice"
+                )
+                
+                # Auto-calculate due date based on payment terms
+                if payment_terms == "Net 30":
+                    default_due_date = invoice_date + timedelta(days=30)
+                elif payment_terms == "Net 15":
+                    default_due_date = invoice_date + timedelta(days=15)
+                elif payment_terms == "Net 7":
+                    default_due_date = invoice_date + timedelta(days=7)
+                elif payment_terms == "Due on Receipt":
+                    default_due_date = invoice_date
+                else:  # Custom
+                    default_due_date = invoice_date + timedelta(days=30)
+                
                 due_date = st.date_input(
                     "Due Date *",
-                    value=date.today() + timedelta(days=30),
-                    help="Payment due date"
+                    value=default_due_date,
+                    help="Payment due date (auto-calculated from payment terms)"
                 )
-                
-                # Auto-calculate payment terms based on date difference
-                if invoice_date and due_date:
-                    payment_days = (due_date - invoice_date).days
-                    
-                    if payment_days == 0:
-                        payment_terms_display = "Due on Receipt"
-                        payment_terms_value = "Due on Receipt"
-                    elif payment_days > 0:
-                        payment_terms_display = f"Net {payment_days}"
-                        payment_terms_value = f"Net {payment_days}"
-                    else:
-                        payment_terms_display = "Invalid (Due date before invoice date)"
-                        payment_terms_value = "Invalid"
-                else:
-                    payment_terms_display = "Net 30"
-                    payment_terms_value = "Net 30"
-                
-                # Display calculated payment terms (read-only)
-                st.text_input(
-                    "Payment Terms (Auto-calculated)",
-                    value=payment_terms_display,
-                    disabled=True,
-                    help=f"Automatically calculated from invoice date to due date"
-                )
-                
-                # Store the payment terms value for later use
-                calculated_payment_terms = payment_terms_value
             
-            # # Add custom payment terms field when Custom is selected
-            # if payment_terms == "Custom":
-            #     custom_terms = st.text_input(
-            #         "Custom Payment Terms *",
-            #         placeholder="e.g., Net 45, 2/10 Net 30, etc.",
-            #         help="Enter custom payment terms"
-            #     )
-            # else:
-            #     custom_terms = payment_terms
+            # Add custom payment terms field when Custom is selected
+            if payment_terms == "Custom":
+                custom_terms = st.text_input(
+                    "Custom Payment Terms *",
+                    placeholder="e.g., Net 45, 2/10 Net 30, etc.",
+                    help="Enter custom payment terms"
+                )
+            else:
+                custom_terms = payment_terms
             
             # Invoice description
             description = st.text_area(
@@ -362,16 +359,17 @@ def show_invoice_creation_form():
         # Form processing - MAKE SURE THIS IS OUTSIDE THE FORM
         if submitted:
             # Validation
+            # Validation
             if not invoice_number or not description:
                 st.error("Invoice number and description are required!")
                 return
                 
-            if invoice_date > due_date:
-                st.error("Due date cannot be before invoice date!")
+            if payment_terms == "Custom" and not custom_terms:
+                st.error("Custom payment terms are required when 'Custom' is selected!")
                 return
                 
-            if calculated_payment_terms == "Invalid":
-                st.error("Invalid payment terms! Due date must be on or after invoice date.")
+            if invoice_date > due_date:
+                st.error("Due date cannot be before invoice date!")
                 return
             
             try:
@@ -386,12 +384,12 @@ def show_invoice_creation_form():
                 
                 # Store invoice details in session for PDF generation
                 st.session_state.invoice_data = {
-                    'project': project,
-                    'invoice_number': invoice_number,
-                    'invoice_date': invoice_date,
-                    'due_date': due_date,
-                    'payment_terms': calculated_payment_terms,  # Use calculated payment terms
-                    'description': description
+                        'project': project,
+                        'invoice_number': invoice_number,
+                        'invoice_date': invoice_date,
+                        'due_date': due_date,
+                        'payment_terms': custom_terms,  # Use custom_terms instead of payment_terms
+                        'description': description
                     }
                 
                 st.success(f"✅ Invoice created successfully!")

@@ -1920,6 +1920,37 @@ class DatabaseOperations:
     def trigger_status_update(self, project_id: int, trigger: str):
         """Manually trigger a status update with specific trigger"""
         return self.update_project_status_automatically(project_id, trigger)
+    # ---
+    def reset_database_keep_admin(self):
+        """Reset all database tables but keep admin user"""
+        try:
+            # Delete all records except admin user
+            
+            # Delete in correct order due to foreign keys
+            self.db.query(MoneyReceipt).delete()
+            self.db.query(ProfitSharingConfig).delete()
+            self.db.query(Disbursement).delete()
+            self.db.query(FinalFinancialCost).delete()
+            self.db.query(InitialFinancialProjection).delete()
+            self.db.query(ProjectDocument).delete()
+            self.db.query(Project).delete()
+            self.db.query(Company).delete()
+            self.db.query(TaskDescription).delete()
+            
+            # Delete all users except admin
+            admin_user = self.db.query(User).filter(User.username == "admin").first()
+            self.db.query(User).filter(User.username != "admin").delete()
+            
+            self.db.commit()
+            
+            print("✅ Database reset completed! Admin user preserved.")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            print(f"❌ Error resetting database: {str(e)}")
+            return False
+    
 #----
 
 # Test function for disbursement operations

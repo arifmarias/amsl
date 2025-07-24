@@ -480,7 +480,73 @@ def show_database_status():
         **Last Backup:** Not configured  
         **Uptime:** 99.9%
         """)
+    # Database Reset Section - ADMIN ONLY
+    st.subheader("🔄 Database Reset (Admin Only)")
+    st.warning("⚠️ **DANGER ZONE**: This will delete ALL data except admin user!")
     
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🗑️ Reset Database (Keep Admin)", type="secondary"):
+            st.session_state.show_reset_confirmation = True
+    
+    with col2:
+        if st.button("📊 View Current Data Count"):
+            try:
+                from database.operations import DatabaseOperations
+                db_ops = DatabaseOperations()
+                
+                projects = db_ops.get_all_projects()
+                companies = db_ops.get_all_companies()
+                users = db_ops.get_all_users()
+                
+                st.info(f"""
+                **Current Data Count:**
+                - Projects: {len(projects)}
+                - Companies: {len(companies)}
+                - Users: {len(users)}
+                """)
+                
+                db_ops.close()
+            except Exception as e:
+                st.error(f"Error counting data: {str(e)}")
+    
+    # Reset confirmation dialog
+    if st.session_state.get('show_reset_confirmation'):
+        st.error("🚨 **FINAL WARNING**: This will permanently delete ALL projects, companies, financial data, and users (except admin)!")
+        st.markdown("**Type 'RESET' to confirm:**")
+        
+        confirmation_text = st.text_input("Confirmation", placeholder="Type RESET in capital letters")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("💥 CONFIRM RESET", type="primary"):
+                if confirmation_text == "RESET":
+                    try:
+                        db_ops = DatabaseOperations()
+                        if db_ops.reset_database_keep_admin():
+                            st.success("✅ Database reset completed! Only admin user remains.")
+                            st.balloons()
+                            del st.session_state.show_reset_confirmation
+                            # Clear any problematic session state
+                            for key in list(st.session_state.keys()):
+                                if key not in ['authenticated', 'user_id', 'username', 'user_role', 'user_full_name', 'login_time']:
+                                    del st.session_state[key]
+                            st.rerun()
+                        else:
+                            st.error("❌ Reset failed!")
+                        db_ops.close()
+                    except Exception as e:
+                        st.error(f"Reset error: {str(e)}")
+                else:
+                    st.error("❌ Please type 'RESET' exactly to confirm!")
+        
+        with col2:
+            if st.button("❌ Cancel Reset"):
+                del st.session_state.show_reset_confirmation
+                st.rerun()
+                
     # Database operations test
     st.subheader("🧪 Database Operations Test")
     if st.button("Run Comprehensive Test"):
