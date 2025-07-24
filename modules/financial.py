@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from database.operations import DatabaseOperations
 from modules.auth import AuthenticationManager
 
@@ -27,15 +27,930 @@ def show_financial():
     else:
         st.error("Access denied. Insufficient permissions.")
 
+def show_invoice_management():
+    """Show invoice management interface"""
+    st.subheader("📄 Invoice Management")
+    
+    user = AuthenticationManager.get_current_user()
+    
+    # Handle invoice creation form
+    if st.session_state.get('show_invoice_form'):
+        show_invoice_creation_form()
+        return
+    
+    # Handle invoice view
+    if st.session_state.get('view_invoice_id'):
+        show_invoice_details(st.session_state.view_invoice_id)
+        return
+    
+    # Main invoice management interface
+    show_invoice_management_interface()
+
+def show_invoice_management_interface():
+    """Main invoice management interface"""
+    
+    # Get projects that can have invoices created
+    db_ops = DatabaseOperations()
+    try:
+        projects = db_ops.get_all_projects()
+        
+        if not projects:
+            st.warning("⚠️ No projects found. Please create projects first.")
+            return
+        
+        # Separate projects by invoice status
+        # Safely extract project data with company relationships
+        projects_ready_for_invoice = []
+        projects_with_invoices = []
+        projects_not_ready = []
+        
+        for project in projects:
+            # Extract company data while session is active
+            po_issuing_company_name = project.po_issuing_company.name if project.po_issuing_company else 'N/A'
+            po_issuing_company_id = project.po_issuing_company_id
+            
+            # Create safe project data
+            safe_project_data = {
+                'id': project.id,
+                'project_name': project.project_name,
+                'po_number': project.po_number,
+                'status': project.status,
+                'final_po_value': project.final_po_value or 0,
+                'total_po_value': project.total_po_value or 0,
+                'vat_amount': project.vat_amount or 0,
+                'ait_amount': project.ait_amount or 0,
+                'invoice_submission_date': project.invoice_submission_date,
+                'final_bill_collection_date': project.final_bill_collection_date,
+                'po_issuing_company_name': po_issuing_company_name,
+                'po_issuing_company_id': po_issuing_company_id,
+                'supplier_company_id': project.supplier_company_id
+            }
+            
+            if project.status == 'cancelled':
+                continue
+            elif project.status == 'invoice_submitted':
+                projects_with_invoices.append(safe_project_data)
+            elif project.status in ['active'] and (project.final_po_value or 0) > 0:
+                projects_ready_for_invoice.append(safe_project_data)
+            else:
+                projects_not_ready.append(safe_project_data)
+        
+        # Statistics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Projects", len(projects))
+        
+        with col2:
+            st.metric("Ready for Invoice", len(projects_ready_for_invoice))
+        
+        with col3:
+            st.metric("Invoices Created", len(projects_with_invoices))
+        
+        with col4:
+            pending_invoices = len(projects_ready_for_invoice)
+            st.metric("Pending Invoices", pending_invoices)
+        
+        # Invoice Due Date Tracking
+        show_invoice_due_date_tracker()
+        st.markdown("---")
+        # Projects ready for invoice creation
+        if projects_ready_for_invoice:
+            st.markdown("### 📝 Projects Ready for Invoice Creation")
+            st.info("💡 These projects are ready to have invoices created.")
+            
+            for project_data in projects_ready_for_invoice:
+                with st.expander(f"🚀 {project_data['project_name']} - Create Invoice"):
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.info(f"""
+                        **Project:** {project_data['project_name']}  
+                        **Client:** {project_data['po_issuing_company_name']}  
+                        **PO:** {project_data['po_number'] or 'N/A'}  
+                        **Status:** {project_data['status'].title()}
+                        """)
+                    
+                    with col2:
+                        st.metric("Project Value", f"৳{project_data['final_po_value']:,.2f}")
+                        st.metric("VAT Amount", f"৳{project_data['vat_amount']:,.2f}")
+                        st.metric("AIT Amount", f"৳{project_data['ait_amount']:,.2f}")
+                    
+                    with col3:
+                        if st.button("📄 Create Invoice", key=f"create_invoice_{project_data['id']}"):
+                            st.session_state.invoice_project_id = project_data['id']
+                            st.session_state.show_invoice_form = True
+                            st.rerun()
+        
+        # Projects with existing invoices
+        if projects_with_invoices:
+            st.markdown("### 📄 Projects with Invoices")
+            
+            for project_data in projects_with_invoices:
+                with st.expander(f"📄 {project_data['project_name']} - Invoice Created"):
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.success(f"""
+                        **Status:** ✅ Invoice Submitted  
+                        **Project:** {project_data['project_name']}  
+                        **Client:** {project_data['po_issuing_company_name']}  
+                        **PO:** {project_data['po_number'] or 'N/A'}
+                        """)
+                    
+                    with col2:
+                        st.metric("Invoice Amount", f"৳{project_data['final_po_value']:,.2f}")
+                        if project_data['invoice_submission_date']:
+                            st.metric("Submitted On", project_data['invoice_submission_date'].strftime('%Y-%m-%d'))
+                        
+                        # Show payment terms
+                        if project_data['invoice_submission_date'] and project_data['final_bill_collection_date']:
+                            payment_days = (project_data['final_bill_collection_date'] - project_data['invoice_submission_date']).days
+                            if payment_days == 0:
+                                payment_terms_display = "Due on Receipt"
+                            else:
+                                payment_terms_display = f"Net {payment_days}"
+                            st.metric("Payment Terms", payment_terms_display)
+                    
+                    with col3:
+                        col_a, col_b = st.columns(2)
+                        
+                        with col_a:
+                            if st.button("👀 View Invoice", key=f"view_invoice_{project_data['id']}"):
+                                st.session_state.view_invoice_id = project_data['id']
+                                st.rerun()
+                        
+                        with col_b:
+                            if st.button("📥 Download", key=f"download_invoice_{project_data['id']}"):
+                                # Need to get full project object for PDF generation
+                                full_project = db_ops.get_project_by_id(project_data['id'])
+                                if full_project:
+                                    generate_invoice_pdf(full_project)
+        
+        # Projects not ready for invoicing
+        if projects_not_ready:
+            st.markdown("### ⏳ Projects Not Ready for Invoice")
+            st.warning("These projects need to be activated and have proper financial data before invoices can be created.")
+            
+            for project_data in projects_not_ready[:5]:  # Show first 5
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    reason = get_invoice_readiness_reason_from_data(project_data)
+                    st.write(f"• **{project_data['project_name']}** - {reason}")
+                with col2:
+                    st.caption(f"Status: {project_data['status'].title()}")
+            
+            if len(projects_not_ready) > 5:
+                st.caption(f"... and {len(projects_not_ready) - 5} more projects")
+        
+    except Exception as e:
+        st.error(f"Error loading invoice management: {str(e)}")
+    finally:
+        db_ops.close()
+        
+def get_invoice_readiness_reason_from_data(project_data):
+    """Get reason why project is not ready for invoice (from extracted data)"""
+    if project_data['status'] == 'new':
+        return "Project is still new - needs financial projections"
+    elif not project_data['final_po_value'] or project_data['final_po_value'] <= 0:
+        return "No project value defined"
+    elif project_data['status'] == 'completed':
+        return "Project already completed"
+    else:
+        return f"Status: {project_data['status']}"
+
+# def get_invoice_readiness_reason(project):
+#     """Get reason why project is not ready for invoice"""
+#     if project.status == 'new':
+#         return "Project is still new - needs financial projections"
+#     elif not project.final_po_value or project.final_po_value <= 0:
+#         return "No project value defined"
+#     elif project.status == 'completed':
+#         return "Project already completed"
+#     else:
+#         return f"Status: {project.status}"
+
+def show_invoice_creation_form():
+    """Show invoice creation form"""
+    st.subheader("📄 Create Professional Invoice")
+    
+    # Back button
+    if st.button("⬅️ Back to Invoice Management"):
+        del st.session_state.show_invoice_form
+        if 'invoice_project_id' in st.session_state:
+            del st.session_state.invoice_project_id
+        st.rerun()
+    
+    # Get project ID
+    project_id = st.session_state.get('invoice_project_id')
+    if not project_id:
+        st.error("No project selected!")
+        return
+    
+    db_ops = DatabaseOperations()
+    try:
+        project = db_ops.get_project_by_id(project_id)
+        if not project:
+            st.error("Project not found!")
+            return
+        
+        # Project information
+        st.markdown(f"### 💼 Creating Invoice for: {project.project_name}")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.info(f"**PO Number:** {project.po_number or 'N/A'}")
+        with col2:
+            client_name = project.po_issuing_company.name if project.po_issuing_company else 'N/A'
+            st.info(f"**Client:** {client_name}")
+        with col3:
+            st.info(f"**Invoice Amount:** ৳{project.final_po_value or 0:,.2f}")
+        
+        # Invoice form
+        with st.form("invoice_creation_form"):
+            st.markdown("### 📋 Invoice Details")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                invoice_number = st.text_input(
+                    "Invoice Number *",
+                    value=f"INV-{datetime.now().strftime('%Y%m%d')}-{project.id:03d}",
+                    help="Unique invoice number"
+                )
+                
+                invoice_date = st.date_input(
+                    "Invoice Date *",
+                    value=date.today(),
+                    help="Date when invoice is created"
+                )
+            
+            with col2:
+                due_date = st.date_input(
+                    "Due Date *",
+                    value=date.today() + timedelta(days=30),
+                    help="Payment due date"
+                )
+                
+                # Auto-calculate payment terms based on date difference
+                if invoice_date and due_date:
+                    payment_days = (due_date - invoice_date).days
+                    
+                    if payment_days == 0:
+                        payment_terms_display = "Due on Receipt"
+                        payment_terms_value = "Due on Receipt"
+                    elif payment_days > 0:
+                        payment_terms_display = f"Net {payment_days}"
+                        payment_terms_value = f"Net {payment_days}"
+                    else:
+                        payment_terms_display = "Invalid (Due date before invoice date)"
+                        payment_terms_value = "Invalid"
+                else:
+                    payment_terms_display = "Net 30"
+                    payment_terms_value = "Net 30"
+                
+                # Display calculated payment terms (read-only)
+                st.text_input(
+                    "Payment Terms (Auto-calculated)",
+                    value=payment_terms_display,
+                    disabled=True,
+                    help=f"Automatically calculated from invoice date to due date"
+                )
+                
+                # Store the payment terms value for later use
+                calculated_payment_terms = payment_terms_value
+            
+            # # Add custom payment terms field when Custom is selected
+            # if payment_terms == "Custom":
+            #     custom_terms = st.text_input(
+            #         "Custom Payment Terms *",
+            #         placeholder="e.g., Net 45, 2/10 Net 30, etc.",
+            #         help="Enter custom payment terms"
+            #     )
+            # else:
+            #     custom_terms = payment_terms
+            
+            # Invoice description
+            description = st.text_area(
+                "Work Description *",
+                value=f"Professional services for {project.project_name} project as per PO #{project.po_number or 'N/A'}",
+                help="Description of work/services provided"
+            )
+            
+            # Financial breakdown (read-only, from project)
+            st.markdown("### 💰 Financial Breakdown")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Base Amount", f"৳{project.total_po_value or 0:,.2f}")
+            
+            with col2:
+                st.metric(f"VAT ({project.vat_rate or 0}%)", f"৳{project.vat_amount or 0:,.2f}")
+            
+            with col3:
+                st.metric(f"AIT ({project.ait_rate or 0}%)", f"৳{project.ait_amount or 0:,.2f}")
+            
+            st.markdown("---")
+            st.markdown(f"### **Total Invoice Amount: ৳{project.final_po_value or 0:,.2f}**")
+            
+            # Submit button - MAKE SURE THIS IS INSIDE THE FORM
+            submitted = st.form_submit_button("📄 Generate Invoice", use_container_width=True)
+        
+        # Form processing - MAKE SURE THIS IS OUTSIDE THE FORM
+        if submitted:
+            # Validation
+            if not invoice_number or not description:
+                st.error("Invoice number and description are required!")
+                return
+                
+            if invoice_date > due_date:
+                st.error("Due date cannot be before invoice date!")
+                return
+                
+            if calculated_payment_terms == "Invalid":
+                st.error("Invalid payment terms! Due date must be on or after invoice date.")
+                return
+            
+            try:
+                # Create invoice record (we'll store basic info in project)
+                project.invoice_submission_date = invoice_date
+                project.final_bill_collection_date = due_date  # Using this field for due date
+                
+                # Update project status to invoice_submitted
+                db_ops.trigger_status_update(project.id, 'invoice_created')
+                
+                db_ops.db.commit()
+                
+                # Store invoice details in session for PDF generation
+                st.session_state.invoice_data = {
+                    'project': project,
+                    'invoice_number': invoice_number,
+                    'invoice_date': invoice_date,
+                    'due_date': due_date,
+                    'payment_terms': calculated_payment_terms,  # Use calculated payment terms
+                    'description': description
+                    }
+                
+                st.success(f"✅ Invoice created successfully!")
+                st.success(f"📄 Invoice #{invoice_number} for ৳{project.final_po_value:,.2f}")
+                st.balloons()
+                
+                # Generate PDF immediately
+                generate_invoice_pdf(project, st.session_state.invoice_data)
+                
+                # Clear form and return
+                del st.session_state.show_invoice_form
+                if 'invoice_project_id' in st.session_state:
+                    del st.session_state.invoice_project_id
+                
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error creating invoice: {str(e)}")
+    
+    except Exception as e:
+        st.error(f"Error loading invoice form: {str(e)}")
+    finally:
+        db_ops.close()
+
+def get_invoice_due_date_analysis():
+    """Get invoice due date analysis for tracking"""
+    db_ops = DatabaseOperations()
+    try:
+        # Get all projects with invoices
+        projects = db_ops.get_all_projects()
+        invoice_projects = [p for p in projects if p.status == 'invoice_submitted']
+        
+        if not invoice_projects:
+            return {
+                'total_invoices': 0,
+                'overdue_invoices': [],
+                'due_soon_invoices': [],
+                'paid_invoices': []
+            }
+        
+        current_date = date.today()
+        overdue_invoices = []
+        due_soon_invoices = []
+        paid_invoices = []
+        
+        for project in invoice_projects:
+            if project.final_bill_collection_date:
+                due_date = project.final_bill_collection_date
+                days_until_due = (due_date - current_date).days
+                
+                if project.status == 'completed':
+                    paid_invoices.append({
+                        'project': project,
+                        'due_date': due_date,
+                        'days_until_due': days_until_due
+                    })
+                elif days_until_due < 0:
+                    overdue_invoices.append({
+                        'project': project,
+                        'due_date': due_date,
+                        'days_overdue': abs(days_until_due)
+                    })
+                elif days_until_due <= 7:
+                    due_soon_invoices.append({
+                        'project': project,
+                        'due_date': due_date,
+                        'days_until_due': days_until_due
+                    })
+        
+        return {
+            'total_invoices': len(invoice_projects),
+            'overdue_invoices': overdue_invoices,
+            'due_soon_invoices': due_soon_invoices,
+            'paid_invoices': paid_invoices
+        }
+        
+    except Exception as e:
+        print(f"Error getting invoice due date analysis: {str(e)}")
+        return {
+            'total_invoices': 0,
+            'overdue_invoices': [],
+            'due_soon_invoices': [],
+            'paid_invoices': []
+        }
+    finally:
+        db_ops.close()
+
+def show_invoice_due_date_tracker():
+    """Show invoice due date tracking section"""
+    st.markdown("### 📅 Invoice Due Date Tracker")
+    
+    analysis = get_invoice_due_date_analysis()
+    
+    if analysis['total_invoices'] == 0:
+        st.info("📭 No invoices found for tracking.")
+        return
+    
+    # Statistics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Invoices", analysis['total_invoices'])
+    
+    with col2:
+        overdue_count = len(analysis['overdue_invoices'])
+        st.metric(
+            "Overdue Invoices", 
+            overdue_count,
+            delta="🚨 Needs attention" if overdue_count > 0 else "✅ None"
+        )
+    
+    with col3:
+        due_soon_count = len(analysis['due_soon_invoices'])
+        st.metric(
+            "Due Soon (7 days)", 
+            due_soon_count,
+            delta="⏰ Follow up" if due_soon_count > 0 else "✅ None"
+        )
+    
+    with col4:
+        paid_count = len(analysis['paid_invoices'])
+        st.metric("Paid Invoices", paid_count)
+    
+    # Overdue invoices alert
+    if analysis['overdue_invoices']:
+        st.error("🚨 **Overdue Invoices - Immediate Action Required**")
+        
+        for invoice in analysis['overdue_invoices'][:5]:  # Show first 5
+            project = invoice['project']
+            days_overdue = invoice['days_overdue']
+            client_name = project.po_issuing_company.name if project.po_issuing_company else 'Unknown'
+            
+            col1, col2, col3 = st.columns([3, 2, 1])
+            
+            with col1:
+                st.write(f"**{project.project_name}**")
+                st.caption(f"Client: {client_name}")
+            
+            with col2:
+                st.write(f"Due: {invoice['due_date'].strftime('%Y-%m-%d')}")
+                st.write(f"Amount: ৳{project.final_po_value or 0:,.2f}")
+            
+            with col3:
+                st.error(f"{days_overdue} days overdue")
+        
+        if len(analysis['overdue_invoices']) > 5:
+            st.caption(f"... and {len(analysis['overdue_invoices']) - 5} more overdue invoices")
+    
+    # Due soon invoices
+    if analysis['due_soon_invoices']:
+        st.warning("⏰ **Invoices Due Soon (Within 7 Days)**")
+        
+        for invoice in analysis['due_soon_invoices']:
+            project = invoice['project']
+            days_until_due = invoice['days_until_due']
+            client_name = project.po_issuing_company.name if project.po_issuing_company else 'Unknown'
+            
+            col1, col2, col3 = st.columns([3, 2, 1])
+            
+            with col1:
+                st.write(f"**{project.project_name}**")
+                st.caption(f"Client: {client_name}")
+            
+            with col2:
+                st.write(f"Due: {invoice['due_date'].strftime('%Y-%m-%d')}")
+                st.write(f"Amount: ৳{project.final_po_value or 0:,.2f}")
+            
+            with col3:
+                if days_until_due == 0:
+                    st.warning("Due Today")
+                else:
+                    st.warning(f"Due in {days_until_due} days")
+    
+    # Show good news if no issues
+    if not analysis['overdue_invoices'] and not analysis['due_soon_invoices']:
+        st.success("✅ **All Invoices On Track!** No overdue or urgent invoices.")
+
+def show_invoice_details(project_id):
+    """Show invoice details view"""
+    st.subheader("👀 Invoice Details")
+    
+    # Back button
+    if st.button("⬅️ Back to Invoice Management"):
+        del st.session_state.view_invoice_id
+        st.rerun()
+    
+    db_ops = DatabaseOperations()
+    try:
+        project = db_ops.get_project_by_id(project_id)
+        if not project:
+            st.error("Project not found!")
+            return
+        
+        if project.status != 'invoice_submitted':
+            st.warning("This project doesn't have an invoice created yet.")
+            return
+        
+        # Show invoice preview
+        st.markdown(f"### 📄 Invoice for: {project.project_name}")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.info(f"""
+            **Invoice Status:** ✅ Created  
+            **Project:** {project.project_name}  
+            **Client:** {project.po_issuing_company.name if project.po_issuing_company else 'N/A'}  
+            **PO Number:** {project.po_number or 'N/A'}
+            """)
+        
+        with col2:
+            st.info(f"""
+            **Invoice Amount:** ৳{project.final_po_value or 0:,.2f}  
+            **Invoice Date:** {project.invoice_submission_date.strftime('%Y-%m-%d') if project.invoice_submission_date else 'N/A'}  
+            **Due Date:** {project.final_bill_collection_date.strftime('%Y-%m-%d') if project.final_bill_collection_date else 'N/A'}
+            """)
+        
+        # Action buttons
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("📥 Download Invoice PDF", use_container_width=True):
+                generate_invoice_pdf(project)
+        
+        with col2:
+            if st.button("📧 Email Invoice", use_container_width=True):
+                st.info("Email functionality will be implemented in later phases.")
+        
+        with col3:
+            if st.button("🖨️ Print Invoice", use_container_width=True):
+                st.info("Print functionality will be implemented in later phases.")
+        
+    except Exception as e:
+        st.error(f"Error loading invoice details: {str(e)}")
+    finally:
+        db_ops.close()
+
+def generate_invoice_pdf(project, invoice_data=None):
+    """Generate professional invoice PDF with company logo - ENHANCED VERSION"""
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.units import inch
+        from reportlab.lib.utils import ImageReader
+        import io
+        import base64
+        import os
+        from datetime import datetime
+        
+        # Get supplier company details from database
+        db_ops = DatabaseOperations()
+        supplier_company = None
+        try:
+            if project.supplier_company_id:
+                supplier_company = db_ops.get_company_by_id(project.supplier_company_id)
+        finally:
+            db_ops.close()
+        
+        # Use stored invoice data or create default
+        if invoice_data:
+            inv_data = invoice_data
+        else:
+            # Create default invoice data from project
+            inv_data = {
+                'project': project,
+                'invoice_number': f"INV-{datetime.now().strftime('%Y%m%d')}-{project.id:03d}",
+                'invoice_date': project.invoice_submission_date or date.today(),
+                'due_date': project.final_bill_collection_date or date.today() + timedelta(days=30),
+                'payment_terms': 'Net 30',
+                'description': f"Professional services for {project.project_name} project"
+            }
+        
+        # Create PDF in memory
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
+        
+        # Add border around the entire page
+        margin = 30
+        p.rect(margin, margin, width - 2*margin, height - 2*margin)
+        
+        # Header section with logo
+        y_position = height - 80
+        
+        # Company Logo - Top Left Corner
+        logo_path = "assets/images/am_logo.png"
+        try:
+            if os.path.exists(logo_path):
+                # Logo positioning (top left)
+                logo_x = 50
+                logo_y = height - 130
+                logo_width = 80
+                logo_height = 80
+                
+                # Draw the logo
+                p.drawImage(logo_path, logo_x, logo_y, width=logo_width, height=logo_height, preserveAspectRatio=True)
+                
+                # Adjust title position to accommodate logo
+                title_y_position = y_position - 20
+            else:
+                title_y_position = y_position
+                
+        except Exception as logo_error:
+            title_y_position = y_position
+        
+        # Supplier Company Information - Top Right (from database)
+        p.setFont("Helvetica-Bold", 12)
+        company_info_x = width - 200
+        company_info_y = height - 80
+        
+        if supplier_company:
+            p.drawString(company_info_x, company_info_y, supplier_company.name)
+            
+            p.setFont("Helvetica", 10)
+            company_info_y -= 15
+            
+            if supplier_company.address:
+                # Clean address (remove city/postal code lines if they exist)
+                address_parts = supplier_company.address.split('\n')
+                clean_address = [part for part in address_parts if not part.startswith('City:') and not part.startswith('Postal:')]
+                for addr_line in clean_address[:2]:  # Show first 2 lines
+                    p.drawString(company_info_x, company_info_y, addr_line)
+                    company_info_y -= 12
+            
+            if supplier_company.email:
+                p.drawString(company_info_x, company_info_y, f"Email: {supplier_company.email}")
+                company_info_y -= 12
+            
+            if supplier_company.phone:
+                p.drawString(company_info_x, company_info_y, f"Phone: {supplier_company.phone}")
+        else:
+            # Fallback company info
+            p.drawString(company_info_x, company_info_y, "AM Square Limited")
+            p.setFont("Helvetica", 10)
+            company_info_y -= 15
+            p.drawString(company_info_x, company_info_y, "Marketing & Communications")
+            company_info_y -= 12
+            p.drawString(company_info_x, company_info_y, "Dhaka, Bangladesh")
+        
+        # Invoice Title - Centered
+        p.setFont("Helvetica-Bold", 28)
+        title = "INVOICE"
+        title_width = p.stringWidth(title, "Helvetica-Bold", 28)
+        p.drawString((width - title_width) / 2, title_y_position, title)
+        
+        # Invoice Details - Right side
+        y_position = height - 180
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(company_info_x, y_position, f"Invoice #: {inv_data['invoice_number']}")
+        
+        y_position -= 20
+        p.setFont("Helvetica", 11)
+        p.drawString(company_info_x, y_position, f"Invoice Date: {inv_data['invoice_date'].strftime('%B %d, %Y')}")
+        
+        y_position -= 15
+        p.drawString(company_info_x, y_position, f"Due Date: {inv_data['due_date'].strftime('%B %d, %Y')}")
+        
+        y_position -= 15
+        p.drawString(company_info_x, y_position, f"Payment Terms: {inv_data.get('payment_terms', 'Net 30')}")
+        
+        # Client Information - Left side
+        y_position = height - 180
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(50, y_position, "Bill To:")
+        
+        y_position -= 20
+        p.setFont("Helvetica-Bold", 11)
+        client_name = project.po_issuing_company.name if project.po_issuing_company else 'Client Name'
+        p.drawString(50, y_position, client_name)
+        
+        y_position -= 15
+        p.setFont("Helvetica", 10)
+        if project.po_issuing_company and project.po_issuing_company.address:
+            # Handle long addresses by wrapping
+            address_lines = wrap_text(p, project.po_issuing_company.address, "Helvetica", 10, 250)
+            for line in address_lines[:3]:  # Show first 3 lines
+                p.drawString(50, y_position, line)
+                y_position -= 12
+        
+        if project.po_issuing_company and project.po_issuing_company.phone:
+            p.drawString(50, y_position, f"Phone: {project.po_issuing_company.phone}")
+            y_position -= 12
+        
+        if project.po_issuing_company and project.po_issuing_company.email:
+            p.drawString(50, y_position, f"Email: {project.po_issuing_company.email}")
+            y_position -= 12
+        
+        # Project Details Section - SIMPLIFIED
+        y_position = height - 320
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(50, y_position, "Project Details:")
+        
+        y_position -= 20
+        p.setFont("Helvetica", 11)
+        p.drawString(50, y_position, f"PO Number: {project.po_number or 'N/A'}")
+        
+        # Service Description - SIMPLIFIED
+        y_position -= 30
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(50, y_position, "Description of Services:")
+        
+        # Financial Breakdown Table - ENHANCED
+        y_position -= 50
+        
+        # Table headers
+        p.setFont("Helvetica-Bold", 11)
+        table_y = y_position
+        
+        # Draw table header background
+        p.setFillColor((0.9, 0.9, 0.9))
+        p.rect(50, table_y - 5, width - 100, 25, fill=1, stroke=1)
+        
+        # Reset text color
+        p.setFillColor((0, 0, 0))
+        
+        # Table headers
+        p.drawString(60, table_y + 5, "Description")
+        p.drawString(350, table_y + 5, "Amount")
+        p.drawString(480, table_y + 5, "Total")
+        
+        # Table content
+        table_y -= 30
+        p.setFont("Helvetica", 10)
+        
+        # Base amount row (without VAT)
+        p.drawString(60, table_y, project.project_name)
+        p.drawString(350, table_y, f"{project.total_po_value or 0:,.2f}")
+        p.drawString(480, table_y, f"{project.total_po_value or 0:,.2f}")
+        
+        # VAT row (separate line)
+        if project.vat_amount and project.vat_amount > 0:
+            table_y -= 20
+            p.drawString(60, table_y, f"VAT ({project.vat_rate or 15}%)")
+            p.drawString(350, table_y, f"{project.vat_amount:,.2f}")
+            p.drawString(480, table_y, f"{project.vat_amount:,.2f}")
+        
+        # AIT row (deduction)
+        # if project.ait_amount and project.ait_amount > 0:
+        #     table_y -= 20
+        #     p.drawString(60, table_y, f"Less: AIT ({project.ait_rate or 2}%)")
+        #     p.drawString(350, table_y, f"-{project.ait_amount:,.2f}")
+        #     p.drawString(480, table_y, f"-{project.ait_amount:,.2f}")
+        
+        # Draw table border
+        table_bottom = table_y - 10
+        p.rect(50, table_bottom, width - 100, y_position - table_bottom + 40, fill=0, stroke=1)
+        
+        # Total section
+        table_y -= 40
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(350, table_y, "TOTAL AMOUNT:")
+        p.drawString(480, table_y, f"{project.final_po_value or 0:,.2f}")
+        
+        # Amount in words - ALL CAPITALS
+        table_y -= 25
+        p.setFont("Helvetica", 10)
+        amount_words = amount_to_words_professional(project.final_po_value or 0).upper()
+        p.drawString(60, table_y, f"Amount in Words: {amount_words}")
+        
+        # Payment Instructions
+        table_y -= 40
+        p.setFont("Helvetica-Bold", 11)
+        p.drawString(50, table_y, "Payment Instructions:")
+        
+        table_y -= 20
+        p.setFont("Helvetica", 10)
+        payment_instructions = [
+            "• Please make payment within the specified due date",
+            "• Include invoice number in payment reference",
+            "• For bank transfer, please contact us for account details"
+        ]
+        
+        for instruction in payment_instructions:
+            p.drawString(60, table_y, instruction)
+            table_y -= 15
+        
+        # Footer section - FIXED LAYOUT
+        footer_y = 200
+        
+        # Signature section - FROM SUPPLIER COMPANY
+        p.setFont("Helvetica-Bold", 11)
+        p.drawString(50, footer_y, "Authorized Signature:")
+        
+        footer_y -= 25
+        p.setFont("Helvetica", 10)
+        
+        if supplier_company:
+            p.drawString(50, footer_y, f"For {supplier_company.name}")
+            footer_y -= 15
+            
+            if supplier_company.contact_person:
+                p.drawString(50, footer_y, supplier_company.contact_person)
+                footer_y -= 12
+            
+            if supplier_company.designation:
+                p.drawString(50, footer_y, supplier_company.designation)
+                footer_y -= 12
+        else:
+            p.drawString(50, footer_y, "For AM Square Limited")
+            footer_y -= 15
+            p.drawString(50, footer_y, "Mohammad Abir Mazumder")
+            footer_y -= 12
+            p.drawString(50, footer_y, "Managing Director")
+        
+        # Signature line
+        footer_y -= 25
+        p.drawString(50, footer_y, "Signature: _________________________")
+        
+        # Date line
+        footer_y -= 15
+        p.drawString(50, footer_y, f"Date: {inv_data['invoice_date'].strftime('%B %d, %Y')}")
+        
+        # Terms and conditions - FIXED POSITIONING
+        footer_y -= 30
+        p.setFont("Helvetica", 8)
+        p.drawString(50, footer_y, "Terms & Conditions:")
+        footer_y -= 10
+        p.drawString(50, footer_y, "1. Payment is due within the specified payment terms.")
+        footer_y -= 10
+        p.drawString(50, footer_y, "2. All disputes must be reported within 7 days.")
+        
+        # Footer - CLEAN VERSION
+        # p.setFont("Helvetica-Oblique", 8)
+        # footer_text = f"Invoice generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | AM Square Limited"
+        # footer_width = p.stringWidth(footer_text, "Helvetica-Oblique", 8)
+        # p.drawString((width - footer_width) / 2, 50, footer_text)
+        
+        p.save()
+        
+        # Prepare download
+        buffer.seek(0)
+        pdf_data = buffer.read()
+        buffer.close()
+        
+        # Create download link
+        b64 = base64.b64encode(pdf_data).decode()
+        href = f'<a href="data:application/pdf;base64,{b64}" download="invoice_{inv_data["invoice_number"]}.pdf">📄 Click here to download Invoice PDF</a>'
+        st.markdown(href, unsafe_allow_html=True)
+        st.success("✅ Professional invoice PDF generated successfully!")
+        
+    except ImportError as e:
+        st.error("❌ ReportLab library is not installed!")
+        st.info("💡 To fix this, install reportlab: `pip install reportlab`")
+        st.code("pip install reportlab")
+        
+    except Exception as e:
+        st.error(f"❌ Error generating invoice PDF: {str(e)}")
+        st.info("💡 Invoice PDF generation failed. Please check the error details above.")
+
 def show_full_financial_interface():
     """Full financial interface for admin and regular users - UPDATED WITH PROFIT SHARING"""
     
     # Tab navigation - UPDATED with Profit Sharing tab
+    # Tab navigation - ENHANCED WITH INVOICE MANAGEMENT
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Financial Overview", 
         "📋 Initial Projections", 
         "💰 Final Costs",
-        "🤝 Profit Sharing",  # NEW TAB
+        "📄 Invoice Management",  # NEW TAB
         "💸 Disbursements",
         "📈 Financial Reports"
     ])
@@ -49,13 +964,13 @@ def show_full_financial_interface():
     with tab3:
         show_final_costs()
     
-    with tab4:
-        show_profit_sharing()  # NEW TAB CONTENT
+    with tab4:  # NEW TAB
+        show_invoice_management()
     
-    with tab5:
+    with tab5:  # Updated number
         show_disbursement_management()
     
-    with tab6:
+    with tab6:  # Updated number
         show_financial_reports()
 
 # Finance user interface remains the same (no profit sharing access for finance users)
@@ -800,12 +1715,919 @@ def show_edit_profit_sharing_form(project_id):
         db_ops.close()
 
 def show_profit_calculation(project_id):
-    """Placeholder for profit calculation - will implement in next step"""
-    st.info("Detailed profit calculation will be implemented in the next step.")
+    """Show comprehensive project profit calculation and analysis"""
+    st.markdown("---")
+    st.subheader("💰 Project Profit Calculation & Analysis")
     
+    # Back button
     if st.button("⬅️ Back to Profit Sharing"):
         del st.session_state.show_profit_calculation
         st.rerun()
+    
+    db_ops = DatabaseOperations()
+    try:
+        # Get comprehensive profit calculation
+        profit_data = db_ops.calculate_project_profit(project_id)
+        
+        if not profit_data:
+            st.error("❌ Unable to calculate profit for this project.")
+            st.info("💡 Make sure the project has financial data (projections, costs, or profit sharing configuration).")
+            return
+        
+        project = profit_data['project']
+        financial_summary = profit_data['financial_summary']
+        disbursement_summary = profit_data['disbursement_summary']
+        cash_flow = profit_data['cash_flow']
+        profit_distribution = profit_data['profit_distribution']
+        allocation_summary = profit_data['allocation_summary']
+        metrics = profit_data['metrics']
+        
+        # Project Header
+        st.markdown(f"### 💼 {project.project_name}")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.info(f"**PO:** {project.po_number or 'N/A'}")
+        with col2:
+            client_name = project.po_issuing_company.name if project.po_issuing_company else 'N/A'
+            st.info(f"**Client:** {client_name}")
+        with col3:
+            st.info(f"**Status:** {project.status.title()}")
+        
+        # Financial Health Score
+        health_score = metrics['financial_health_score']
+        if health_score >= 80:
+            health_color = "success"
+            health_icon = "🟢"
+            health_status = "Excellent"
+        elif health_score >= 60:
+            health_color = "normal"
+            health_icon = "🟡"
+            health_status = "Good"
+        elif health_score >= 40:
+            health_color = "normal"
+            health_icon = "🟠"
+            health_status = "Fair"
+        else:
+            health_color = "inverse"
+            health_icon = "🔴"
+            health_status = "Poor"
+        
+        st.markdown(f"""
+        <div style="text-align: center; padding: 1rem; background: linear-gradient(90deg, #1f4e79, #2e86de); color: white; border-radius: 10px; margin: 1rem 0;">
+            <h3>{health_icon} Financial Health Score: {health_score}/100 ({health_status})</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Key Financial Metrics
+        st.markdown("### 📊 Key Financial Metrics")
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.metric(
+                "Project Revenue",
+                f"৳{financial_summary['total_revenue']:,.2f}",
+                help="Final PO value after VAT and AIT"
+            )
+        
+        with col2:
+            cost_basis = financial_summary['cost_basis']
+            cost_type = "Actual" if financial_summary['total_actual_cost'] > 0 else "Projected"
+            st.metric(
+                f"{cost_type} Costs",
+                f"৳{cost_basis:,.2f}",
+                delta=f"{financial_summary['cost_efficiency_percentage']:.1f}% of revenue",
+                help=f"{'Actual costs from final cost tracking' if cost_type == 'Actual' else 'Projected costs from initial estimates'}"
+            )
+        
+        with col3:
+            gross_profit = financial_summary['gross_profit']
+            profit_margin = financial_summary['profit_margin_percentage']
+            delta_color = "normal" if gross_profit >= 0 else "inverse"
+            st.metric(
+                "Gross Profit",
+                f"৳{gross_profit:,.2f}",
+                delta=f"{profit_margin:+.1f}% margin",
+                delta_color=delta_color,
+                help="Revenue minus total costs"
+            )
+        
+        with col4:
+            operational_disbursed = disbursement_summary['operational_disbursements']
+            st.metric(
+                "Disbursed Amount",
+                f"৳{operational_disbursed:,.2f}",
+                delta=f"{cash_flow['collection_rate']:.1f}% collected",
+                help="Total advance and project cost disbursements"
+            )
+        
+        with col5:
+            cash_balance = cash_flow['cash_flow_balance']
+            st.metric(
+                "Cash Balance",
+                f"৳{cash_balance:,.2f}",
+                delta="Remaining to collect" if cash_balance > 0 else "Fully collected",
+                help="Revenue minus disbursed amounts"
+            )
+        
+        # Profit Distribution Analysis
+        if profit_distribution:
+            st.markdown("### 🤝 Profit Distribution Analysis")
+            
+            # Distribution Summary
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    "Total Allocated",
+                    f"{allocation_summary['total_percentage_allocated']:.1f}%",
+                    delta=f"৳{allocation_summary['total_distributed']:,.2f}"
+                )
+            
+            with col2:
+                st.metric(
+                    "Unallocated",
+                    f"{allocation_summary['unallocated_percentage']:.1f}%",
+                    delta=f"৳{allocation_summary['unallocated_amount']:,.2f}"
+                )
+            
+            with col3:
+                config_count = len(profit_distribution)
+                company_count = len(set(d['assigned_to'] for d in profit_distribution))
+                st.metric(
+                    "Configurations",
+                    f"{config_count} tasks",
+                    delta=f"{company_count} companies"
+                )
+            
+            # Detailed Distribution Table
+            st.markdown("#### 📋 Detailed Profit Distribution")
+            
+            distribution_data = []
+            for dist in profit_distribution:
+                distribution_data.append({
+                    'Task': dist['task_name'],
+                    'Assigned To': dist['assigned_to'],
+                    'Percentage': f"{dist['percentage']:.1f}%",
+                    'Profit Amount': f"৳{dist['amount']:,.2f}",
+                    'Status': '✅ Configured'
+                })
+            
+            # Add unallocated row if exists
+            if allocation_summary['unallocated_percentage'] > 0:
+                distribution_data.append({
+                    'Task': '🔄 Unallocated Profit',
+                    'Assigned To': 'To be assigned',
+                    'Percentage': f"{allocation_summary['unallocated_percentage']:.1f}%",
+                    'Profit Amount': f"৳{allocation_summary['unallocated_amount']:,.2f}",
+                    'Status': '⚠️ Unassigned'
+                })
+            
+            if distribution_data:
+                df = pd.DataFrame(distribution_data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            
+            # Company-wise Summary
+            st.markdown("#### 🏢 Company-wise Profit Summary")
+            
+            # Group by company
+            company_profits = {}
+            for dist in profit_distribution:
+                company = dist['assigned_to']
+                if company not in company_profits:
+                    company_profits[company] = {
+                        'total_percentage': 0,
+                        'total_amount': 0,
+                        'task_count': 0,
+                        'tasks': []
+                    }
+                
+                company_profits[company]['total_percentage'] += dist['percentage']
+                company_profits[company]['total_amount'] += dist['amount']
+                company_profits[company]['task_count'] += 1
+                company_profits[company]['tasks'].append(dist['task_name'])
+            
+            for company, data in company_profits.items():
+                with st.expander(f"🏢 {company} - {data['total_percentage']:.1f}% (৳{data['total_amount']:,.2f})"):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.metric("Total Percentage", f"{data['total_percentage']:.1f}%")
+                        st.metric("Profit Amount", f"৳{data['total_amount']:,.2f}")
+                    
+                    with col2:
+                        st.metric("Task Count", data['task_count'])
+                        st.markdown("**Assigned Tasks:**")
+                        for task in data['tasks']:
+                            st.markdown(f"• {task}")
+        
+        else:
+            st.warning("⚠️ No profit sharing configuration found for this project.")
+            st.info("💡 Configure profit sharing to see detailed profit distribution analysis.")
+        
+        # Cost Analysis Section
+        st.markdown("### 📈 Cost Analysis")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### 💰 Cost Breakdown")
+            
+            projected_cost = financial_summary['total_projected_cost']
+            actual_cost = financial_summary['total_actual_cost']
+            
+            if actual_cost > 0:
+                variance = metrics['cost_variance']
+                variance_pct = metrics['cost_variance_percentage']
+                
+                st.metric("Projected Costs", f"৳{projected_cost:,.2f}")
+                st.metric(
+                    "Actual Costs", 
+                    f"৳{actual_cost:,.2f}",
+                    delta=f"৳{variance:+,.2f} ({variance_pct:+.1f}%)",
+                    delta_color="inverse" if variance > 0 else "normal"
+                )
+                
+                if abs(variance_pct) > 10:
+                    if variance_pct > 0:
+                        st.error(f"🚨 Cost overrun of {variance_pct:.1f}%!")
+                    else:
+                        st.success(f"💰 Cost savings of {abs(variance_pct):.1f}%!")
+                elif abs(variance_pct) > 5:
+                    st.warning(f"⚠️ Cost variance of {variance_pct:+.1f}%")
+                else:
+                    st.success("✅ Costs are on track!")
+            else:
+                st.metric("Projected Costs", f"৳{projected_cost:,.2f}")
+                st.info("💡 No actual costs recorded yet. Using projected costs for profit calculation.")
+        
+        with col2:
+            st.markdown("#### 💸 Disbursement Breakdown")
+            
+            advance_amount = disbursement_summary['advance_disbursements']
+            project_cost_amount = disbursement_summary['project_cost_disbursements']
+            personal_loan_amount = disbursement_summary['personal_loan_disbursements']
+            
+            st.metric("Advance Disbursements", f"৳{advance_amount:,.2f}")
+            st.metric("Project Cost Disbursements", f"৳{project_cost_amount:,.2f}")
+            if personal_loan_amount > 0:
+                st.metric("Personal Loans", f"৳{personal_loan_amount:,.2f}", help="Not included in profit calculation")
+        
+        # Visual Analytics Charts
+        show_profit_analytics_charts(profit_data)
+        
+        # Detailed Analysis Section
+        st.markdown("### 🔍 Detailed Analysis")
+        
+        # Create tabs for different analysis views
+        tab1, tab2, tab3 = st.tabs(["📊 Financial Breakdown", "💸 Cash Flow Analysis", "📈 Performance Metrics"])
+        
+        with tab1:
+            show_financial_breakdown_analysis(profit_data)
+        
+        with tab2:
+            show_cash_flow_analysis(profit_data)
+        
+        with tab3:
+            show_performance_metrics_analysis(profit_data)
+        # Action Buttons
+        st.markdown("### 📤 Actions")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("📊 Generate Report", use_container_width=True):
+                generate_profit_report(profit_data)
+        
+        with col2:
+            if st.button("📧 Email Report", use_container_width=True):
+                st.info("Email functionality will be implemented in later phases.")
+        
+        with col3:
+            if st.button("💾 Export CSV", use_container_width=True):
+                export_profit_data_csv(profit_data)
+        
+        with col4:
+            if st.button("🔄 Refresh Calculation", use_container_width=True):
+                st.rerun()
+        # show_profit_recommendations(profit_data)
+        
+    except Exception as e:
+        st.error(f"❌ Error loading profit calculation: {str(e)}")
+        st.info("💡 Please check if the project has the required financial data.")
+    finally:
+        db_ops.close()
+
+def generate_profit_report(profit_data):
+    """Generate comprehensive profit report"""
+    try:
+        project = profit_data['project']
+        financial_summary = profit_data['financial_summary']
+        profit_distribution = profit_data['profit_distribution']
+        allocation_summary = profit_data['allocation_summary']
+        metrics = profit_data['metrics']
+        
+        # Create report content
+        report_content = f"""
+# PROJECT PROFIT ANALYSIS REPORT
+
+## Project Information
+- **Project Name:** {project.project_name}
+- **PO Number:** {project.po_number or 'N/A'}
+- **Client:** {project.po_issuing_company.name if project.po_issuing_company else 'N/A'}
+- **Status:** {project.status.title()}
+- **Report Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Financial Summary
+- **Total Revenue:** ৳{financial_summary['total_revenue']:,.2f}
+- **Total Costs:** ৳{financial_summary['cost_basis']:,.2f}
+- **Gross Profit:** ৳{financial_summary['gross_profit']:,.2f}
+- **Profit Margin:** {financial_summary['profit_margin_percentage']:.2f}%
+- **Financial Health Score:** {metrics['financial_health_score']}/100
+
+## Profit Distribution
+"""
+        
+        if profit_distribution:
+            report_content += f"""
+- **Total Allocated:** {allocation_summary['total_percentage_allocated']:.1f}% (৳{allocation_summary['total_distributed']:,.2f})
+- **Unallocated:** {allocation_summary['unallocated_percentage']:.1f}% (৳{allocation_summary['unallocated_amount']:,.2f})
+
+### Detailed Distribution:
+"""
+            for dist in profit_distribution:
+                report_content += f"- **{dist['task_name']}** → {dist['assigned_to']}: {dist['percentage']:.1f}% (৳{dist['amount']:,.2f})\n"
+        else:
+            report_content += "- No profit sharing configuration found\n"
+        
+        # Display report
+        st.markdown("### 📋 Generated Profit Report")
+        st.markdown(report_content)
+        
+        # Download option
+        st.download_button(
+            label="📥 Download Report (Markdown)",
+            data=report_content,
+            file_name=f"profit_report_{project.project_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.md",
+            mime="text/markdown"
+        )
+        
+        st.success("✅ Profit report generated successfully!")
+        
+    except Exception as e:
+        st.error(f"❌ Error generating report: {str(e)}")
+
+def export_profit_data_csv(profit_data):
+    """Export profit data to CSV format"""
+    try:
+        project = profit_data['project']
+        profit_distribution = profit_data['profit_distribution']
+        financial_summary = profit_data['financial_summary']
+        disbursement_summary = profit_data['disbursement_summary']
+        
+        # Prepare CSV data
+        csv_data = []
+        
+        # Add project summary row
+        csv_data.append({
+            'Type': 'PROJECT_SUMMARY',
+            'Description': project.project_name,
+            'Company': project.po_issuing_company.name if project.po_issuing_company else 'N/A',
+            'Amount': financial_summary['total_revenue'],
+            'Percentage': 100.0,
+            'Category': 'Revenue'
+        })
+        
+        # Add cost summary
+        csv_data.append({
+            'Type': 'COST_SUMMARY',
+            'Description': 'Total Project Costs',
+            'Company': 'Internal',
+            'Amount': financial_summary['cost_basis'],
+            'Percentage': (financial_summary['cost_basis'] / financial_summary['total_revenue'] * 100) if financial_summary['total_revenue'] > 0 else 0,
+            'Category': 'Cost'
+        })
+        
+        # Add gross profit
+        csv_data.append({
+            'Type': 'GROSS_PROFIT',
+            'Description': 'Gross Profit',
+            'Company': 'Internal',
+            'Amount': financial_summary['gross_profit'],
+            'Percentage': financial_summary['profit_margin_percentage'],
+            'Category': 'Profit'
+        })
+        
+        # Add profit distribution
+        for dist in profit_distribution:
+            csv_data.append({
+                'Type': 'PROFIT_DISTRIBUTION',
+                'Description': dist['task_name'],
+                'Company': dist['assigned_to'],
+                'Amount': dist['amount'],
+                'Percentage': dist['percentage'],
+                'Category': 'Distribution'
+            })
+        
+        # Add disbursement summary
+        if disbursement_summary['advance_disbursements'] > 0:
+            csv_data.append({
+                'Type': 'DISBURSEMENT',
+                'Description': 'Advance Disbursements',
+                'Company': 'Various',
+                'Amount': disbursement_summary['advance_disbursements'],
+                'Percentage': (disbursement_summary['advance_disbursements'] / financial_summary['total_revenue'] * 100) if financial_summary['total_revenue'] > 0 else 0,
+                'Category': 'Disbursement'
+            })
+        
+        if disbursement_summary['project_cost_disbursements'] > 0:
+            csv_data.append({
+                'Type': 'DISBURSEMENT',
+                'Description': 'Project Cost Disbursements',
+                'Company': 'Various',
+                'Amount': disbursement_summary['project_cost_disbursements'],
+                'Percentage': (disbursement_summary['project_cost_disbursements'] / financial_summary['total_revenue'] * 100) if financial_summary['total_revenue'] > 0 else 0,
+                'Category': 'Disbursement'
+            })
+        
+        # Convert to DataFrame and CSV
+        df = pd.DataFrame(csv_data)
+        csv_string = df.to_csv(index=False)
+        
+        # Download button
+        st.download_button(
+            label="📥 Download Profit Data (CSV)",
+            data=csv_string,
+            file_name=f"profit_data_{project.project_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+        
+        # Show preview
+        st.markdown("### 📊 CSV Data Preview")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        st.success("✅ CSV export prepared successfully!")
+        
+    except Exception as e:
+        st.error(f"❌ Error exporting CSV: {str(e)}")
+
+def show_profit_analytics_charts(profit_data):
+    """Show visual analytics charts for profit data"""
+    try:
+        import plotly.graph_objects as go
+        import plotly.express as px
+        
+        financial_summary = profit_data['financial_summary']
+        profit_distribution = profit_data['profit_distribution']
+        disbursement_summary = profit_data['disbursement_summary']
+        
+        st.markdown("### 📊 Visual Analytics")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Revenue vs Cost vs Profit Chart
+            st.markdown("#### 💰 Financial Overview")
+            
+            categories = ['Revenue', 'Costs', 'Gross Profit']
+            amounts = [
+                financial_summary['total_revenue'],
+                financial_summary['cost_basis'],
+                financial_summary['gross_profit']
+            ]
+            colors = ['#28a745', '#dc3545', '#007bff']
+            
+            fig = go.Figure(data=[
+                go.Bar(
+                    x=categories,
+                    y=amounts,
+                    marker_color=colors,
+                    text=[f"৳{amt:,.0f}" for amt in amounts],
+                    textposition='auto'
+                )
+            ])
+            
+            fig.update_layout(
+                title="Revenue vs Costs vs Profit",
+                yaxis_title="Amount (৳)",
+                height=400
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # Profit Distribution Pie Chart
+            if profit_distribution:
+                st.markdown("#### 🤝 Profit Distribution")
+                
+                companies = [d['assigned_to'] for d in profit_distribution]
+                amounts = [d['amount'] for d in profit_distribution]
+                
+                # Add unallocated if exists
+                unallocated = profit_data['allocation_summary']['unallocated_amount']
+                if unallocated > 0:
+                    companies.append('Unallocated')
+                    amounts.append(unallocated)
+                
+                fig = go.Figure(data=[go.Pie(
+                    labels=companies,
+                    values=amounts,
+                    textinfo='label+percent+value',
+                    texttemplate='%{label}<br>%{percent}<br>৳%{value:,.0f}'
+                )])
+                
+                fig.update_layout(
+                    title="Profit Distribution by Company",
+                    height=400
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No profit distribution data to visualize")
+        
+        # Disbursement Analysis
+        if any(disbursement_summary.values()):
+            st.markdown("#### 💸 Disbursement Analysis")
+            
+            disb_types = []
+            disb_amounts = []
+            
+            if disbursement_summary['advance_disbursements'] > 0:
+                disb_types.append('Advance')
+                disb_amounts.append(disbursement_summary['advance_disbursements'])
+            
+            if disbursement_summary['project_cost_disbursements'] > 0:
+                disb_types.append('Project Cost')
+                disb_amounts.append(disbursement_summary['project_cost_disbursements'])
+            
+            if disbursement_summary['personal_loan_disbursements'] > 0:
+                disb_types.append('Personal Loan')
+                disb_amounts.append(disbursement_summary['personal_loan_disbursements'])
+            
+            if disb_types:
+                fig = go.Figure(data=[
+                    go.Bar(
+                        x=disb_types,
+                        y=disb_amounts,
+                        marker_color=['#ffc107', '#17a2b8', '#6c757d'],
+                        text=[f"৳{amt:,.0f}" for amt in disb_amounts],
+                        textposition='auto'
+                    )
+                ])
+                
+                fig.update_layout(
+                    title="Disbursements by Type",
+                    yaxis_title="Amount (৳)",
+                    height=350
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+    
+    except Exception as e:
+        st.info("Charts not available: Advanced visualization requires additional setup")
+
+def show_financial_breakdown_analysis(profit_data):
+    """Show detailed financial breakdown analysis"""
+    financial_summary = profit_data['financial_summary']
+    disbursement_summary = profit_data['disbursement_summary']
+    metrics = profit_data['metrics']
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 💰 Revenue & Cost Analysis")
+        
+        revenue = financial_summary['total_revenue']
+        cost_basis = financial_summary['cost_basis']
+        gross_profit = financial_summary['gross_profit']
+        
+        # Create a breakdown table
+        breakdown_data = [
+            {"Category": "Project Revenue", "Amount": f"৳{revenue:,.2f}", "Percentage": "100.0%"},
+            {"Category": "Total Costs", "Amount": f"৳{cost_basis:,.2f}", "Percentage": f"{(cost_basis/revenue*100) if revenue > 0 else 0:.1f}%"},
+            {"Category": "Gross Profit", "Amount": f"৳{gross_profit:,.2f}", "Percentage": f"{financial_summary['profit_margin_percentage']:.1f}%"}
+        ]
+        
+        df = pd.DataFrame(breakdown_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Cost efficiency analysis
+        cost_efficiency = financial_summary['cost_efficiency_percentage']
+        if cost_efficiency < 70:
+            st.success(f"✅ Excellent cost efficiency: {cost_efficiency:.1f}%")
+        elif cost_efficiency < 80:
+            st.info(f"ℹ️ Good cost efficiency: {cost_efficiency:.1f}%")
+        elif cost_efficiency < 90:
+            st.warning(f"⚠️ Fair cost efficiency: {cost_efficiency:.1f}%")
+        else:
+            st.error(f"🚨 Poor cost efficiency: {cost_efficiency:.1f}%")
+    
+    with col2:
+        st.markdown("#### 📊 Cost Variance Analysis")
+        
+        if financial_summary['total_actual_cost'] > 0:
+            projected = financial_summary['total_projected_cost']
+            actual = financial_summary['total_actual_cost']
+            variance = metrics['cost_variance']
+            variance_pct = metrics['cost_variance_percentage']
+            
+            variance_data = [
+                {"Type": "Projected Costs", "Amount": f"৳{projected:,.2f}"},
+                {"Type": "Actual Costs", "Amount": f"৳{actual:,.2f}"},
+                {"Type": "Variance", "Amount": f"৳{variance:+,.2f} ({variance_pct:+.1f}%)"}
+            ]
+            
+            df = pd.DataFrame(variance_data)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            
+            # Variance insights
+            if abs(variance_pct) <= 5:
+                st.success("✅ Cost variance is within acceptable range (±5%)")
+            elif abs(variance_pct) <= 10:
+                st.warning("⚠️ Cost variance is moderate (5-10%)")
+            else:
+                st.error("🚨 Significant cost variance (>10%) - requires attention")
+        else:
+            st.info("💡 No actual cost data available. Using projected costs for analysis.")
+            
+            # Show projected cost breakdown if available
+            raw_data = profit_data['raw_data']
+            if raw_data['initial_projections']:
+                st.markdown("**Projected Cost Items:**")
+                for proj in raw_data['initial_projections'][:5]:  # Show first 5 items
+                    st.markdown(f"• {proj.particulars}: ৳{proj.amount:,.2f}")
+                
+                if len(raw_data['initial_projections']) > 5:
+                    st.caption(f"... and {len(raw_data['initial_projections']) - 5} more items")
+
+def show_cash_flow_analysis(profit_data):
+    """Show cash flow analysis"""
+    cash_flow = profit_data['cash_flow']
+    disbursement_summary = profit_data['disbursement_summary']
+    financial_summary = profit_data['financial_summary']
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 💳 Cash Flow Summary")
+        
+        total_revenue = financial_summary['total_revenue']
+        total_collected = cash_flow['total_collected']
+        cash_balance = cash_flow['cash_flow_balance']
+        collection_rate = cash_flow['collection_rate']
+        
+        cash_flow_data = [
+            {"Item": "Total Project Revenue", "Amount": f"৳{total_revenue:,.2f}"},
+            {"Item": "Amount Collected", "Amount": f"৳{total_collected:,.2f}"},
+            {"Item": "Remaining Balance", "Amount": f"৳{cash_balance:,.2f}"},
+            {"Item": "Collection Rate", "Amount": f"{collection_rate:.1f}%"}
+        ]
+        
+        df = pd.DataFrame(cash_flow_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Cash flow status
+        if collection_rate >= 90:
+            st.success("✅ Excellent cash collection rate")
+        elif collection_rate >= 70:
+            st.info("ℹ️ Good cash collection rate")
+        elif collection_rate >= 50:
+            st.warning("⚠️ Moderate cash collection rate")
+        else:
+            st.error("🚨 Low cash collection rate - follow up required")
+    
+    with col2:
+        st.markdown("#### 💸 Disbursement Breakdown")
+        
+        advance = disbursement_summary['advance_disbursements']
+        project_cost = disbursement_summary['project_cost_disbursements']
+        personal_loan = disbursement_summary['personal_loan_disbursements']
+        total_disb = disbursement_summary['total_disbursements']
+        
+        disbursement_data = []
+        
+        if advance > 0:
+            disbursement_data.append({"Type": "Advance Disbursements", "Amount": f"৳{advance:,.2f}", "Percentage": f"{(advance/total_disb*100) if total_disb > 0 else 0:.1f}%"})
+        
+        if project_cost > 0:
+            disbursement_data.append({"Type": "Project Cost Disbursements", "Amount": f"৳{project_cost:,.2f}", "Percentage": f"{(project_cost/total_disb*100) if total_disb > 0 else 0:.1f}%"})
+        
+        if personal_loan > 0:
+            disbursement_data.append({"Type": "Personal Loans", "Amount": f"৳{personal_loan:,.2f}", "Percentage": f"{(personal_loan/total_disb*100) if total_disb > 0 else 0:.1f}%"})
+        
+        if disbursement_data:
+            df = pd.DataFrame(disbursement_data)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            
+            # Disbursement insights
+            operational_disb = advance + project_cost
+            if operational_disb > 0:
+                disb_efficiency = (operational_disb / total_revenue * 100) if total_revenue > 0 else 0
+                st.metric("Operational Disbursement Rate", f"{disb_efficiency:.1f}%")
+                
+                if disb_efficiency > 80:
+                    st.error("🚨 High disbursement rate - monitor cash flow")
+                elif disb_efficiency > 60:
+                    st.warning("⚠️ Moderate disbursement rate")
+                else:
+                    st.success("✅ Healthy disbursement rate")
+        else:
+            st.info("No disbursements recorded for this project")
+
+def show_performance_metrics_analysis(profit_data):
+    """Show performance metrics analysis"""
+    metrics = profit_data['metrics']
+    financial_summary = profit_data['financial_summary']
+    allocation_summary = profit_data['allocation_summary']
+    
+    st.markdown("#### 🎯 Performance Metrics")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Financial Health Score breakdown
+        health_score = metrics['financial_health_score']
+        st.metric("Financial Health Score", f"{health_score}/100")
+        
+        # Health score interpretation
+        if health_score >= 80:
+            st.success("🟢 Excellent financial health")
+            health_feedback = "Project shows strong profitability and cost control"
+        elif health_score >= 60:
+            st.info("🟡 Good financial health")
+            health_feedback = "Project is performing well with minor areas for improvement"
+        elif health_score >= 40:
+            st.warning("🟠 Fair financial health")
+            health_feedback = "Project needs attention in cost management or profit allocation"
+        else:
+            st.error("🔴 Poor financial health")
+            health_feedback = "Project requires immediate review and corrective action"
+        
+        st.caption(health_feedback)
+    
+    with col2:
+        # Profit efficiency metrics
+        profit_margin = financial_summary['profit_margin_percentage']
+        st.metric("Profit Margin", f"{profit_margin:.1f}%")
+        
+        # Profit margin benchmarks
+        if profit_margin >= 25:
+            st.success("🌟 Exceptional profit margin")
+        elif profit_margin >= 15:
+            st.success("✅ Excellent profit margin")
+        elif profit_margin >= 10:
+            st.info("ℹ️ Good profit margin")
+        elif profit_margin >= 5:
+            st.warning("⚠️ Acceptable profit margin")
+        elif profit_margin > 0:
+            st.warning("⚠️ Low profit margin")
+        else:
+            st.error("🚨 Project is not profitable")
+    
+    with col3:
+        # Allocation efficiency
+        allocation_rate = allocation_summary['total_percentage_allocated']
+        st.metric("Profit Allocation", f"{allocation_rate:.1f}%")
+        
+        # Allocation completeness
+        if allocation_rate >= 95:
+            st.success("✅ Fully allocated")
+        elif allocation_rate >= 80:
+            st.info("ℹ️ Well allocated")
+        elif allocation_rate >= 60:
+            st.warning("⚠️ Partially allocated")
+        else:
+            st.error("🚨 Poorly allocated")
+    
+    # Performance insights
+    st.markdown("#### 💡 Performance Insights")
+    
+    insights = []
+    
+    # Profitability insights
+    if profit_margin >= 20:
+        insights.append("🌟 **Excellent Profitability**: This project shows outstanding profit margins.")
+    elif profit_margin <= 5:
+        insights.append("⚠️ **Low Profitability**: Consider reviewing costs or pricing strategy.")
+    
+    # Cost control insights
+    cost_efficiency = financial_summary['cost_efficiency_percentage']
+    if cost_efficiency <= 70:
+        insights.append("✅ **Good Cost Control**: Costs are well managed relative to revenue.")
+    elif cost_efficiency >= 90:
+        insights.append("🚨 **High Cost Ratio**: Costs are consuming most of the revenue.")
+    
+    # Allocation insights
+    if allocation_rate < 80:
+        unallocated_amount = allocation_summary['unallocated_amount']
+        insights.append(f"💰 **Unallocated Profit**: ৳{unallocated_amount:,.2f} ({100-allocation_rate:.1f}%) is not yet allocated.")
+    
+    # Cash flow insights
+    cash_flow_balance = profit_data['cash_flow']['cash_flow_balance']
+    if cash_flow_balance > financial_summary['total_revenue'] * 0.3:
+        insights.append("💳 **Strong Cash Position**: Significant funds remaining to be collected.")
+    elif cash_flow_balance < 0:
+        insights.append("⚠️ **Over-disbursed**: More money has been disbursed than the project revenue.")
+    
+    if insights:
+        for insight in insights:
+            st.markdown(insight)
+    else:
+        st.info("ℹ️ No specific insights available. Project metrics are within normal ranges.")
+
+# def show_profit_recommendations(profit_data):
+#     """Show actionable recommendations based on profit analysis"""
+#     st.markdown("### 💡 Recommendations")
+    
+#     financial_summary = profit_data['financial_summary']
+#     allocation_summary = profit_data['allocation_summary']
+#     metrics = profit_data['metrics']
+#     cash_flow = profit_data['cash_flow']
+    
+#     recommendations = []
+    
+#     # Profitability recommendations
+#     profit_margin = financial_summary['profit_margin_percentage']
+#     if profit_margin < 10:
+#         recommendations.append({
+#             'type': 'warning',
+#             'title': 'Improve Profitability',
+#             'description': 'Consider reviewing pricing strategy or reducing costs to improve profit margins.',
+#             'actions': ['Review project scope', 'Optimize resource allocation', 'Negotiate better rates']
+#         })
+#     elif profit_margin > 30:
+#         recommendations.append({
+#             'type': 'success',
+#             'title': 'Replicate Success',
+#             'description': 'This project shows excellent profitability. Apply these practices to other projects.',
+#             'actions': ['Document best practices', 'Train team on successful methods', 'Use as template for future projects']
+#         })
+    
+#     # Cost control recommendations
+#     if financial_summary['total_actual_cost'] > 0:
+#         variance_pct = metrics['cost_variance_percentage']
+#         if abs(variance_pct) > 15:
+#             recommendations.append({
+#                 'type': 'error',
+#                 'title': 'Cost Control Issues',
+#                 'description': f'Significant cost variance of {variance_pct:+.1f}% indicates poor cost estimation or control.',
+#                 'actions': ['Review cost estimation process', 'Implement better cost tracking', 'Conduct variance analysis']
+#             })
+    
+#     # Allocation recommendations
+#     if allocation_summary['unallocated_percentage'] > 20:
+#         recommendations.append({
+#             'type': 'info',
+#             'title': 'Complete Profit Allocation',
+#             'description': f'{allocation_summary["unallocated_percentage"]:.1f}% of profit remains unallocated.',
+#             'actions': ['Configure remaining profit sharing', 'Assign tasks to team members', 'Review profit distribution strategy']
+#         })
+    
+#     # Cash flow recommendations
+#     collection_rate = cash_flow['collection_rate']
+#     if collection_rate < 70:
+#         recommendations.append({
+#             'type': 'warning',
+#             'title': 'Improve Cash Collection',
+#             'description': f'Low collection rate of {collection_rate:.1f}% may indicate cash flow issues.',
+#             'actions': ['Follow up on pending collections', 'Review disbursement policies', 'Implement milestone-based payments']
+#         })
+    
+#     # Display recommendations
+#     if recommendations:
+#         for i, rec in enumerate(recommendations):
+#             if rec['type'] == 'success':
+#                 st.success(f"✅ **{rec['title']}**: {rec['description']}")
+#             elif rec['type'] == 'warning':
+#                 st.warning(f"⚠️ **{rec['title']}**: {rec['description']}")
+#             elif rec['type'] == 'error':
+#                 st.error(f"🚨 **{rec['title']}**: {rec['description']}")
+#             else:
+#                 st.info(f"💡 **{rec['title']}**: {rec['description']}")
+            
+#             with st.expander(f"Suggested Actions for: {rec['title']}"):
+#                 for action in rec['actions']:
+#                     st.markdown(f"• {action}")
+#     else:
+#         st.success("✅ **All Good!** This project shows healthy financial metrics with no immediate concerns.")
+        
+#     # General best practices
+#     with st.expander("📚 General Best Practices"):
+#         st.markdown("""
+#         **Financial Management Best Practices:**
+#         - Regularly update actual costs to maintain accurate profit calculations
+#         - Monitor cash flow and collection rates weekly
+#         - Review profit allocation quarterly to ensure fair distribution
+#         - Document lessons learned for future project improvements
+#         - Maintain clear communication with all stakeholders about financial status
+        
+#         **Red Flags to Watch:**
+#         - Profit margins below 5%
+#         - Cost variances exceeding 10%
+#         - Collection rates below 70%
+#         - More than 30% unallocated profit
+#         """)
 
 def show_financial_overview():
     """Show financial overview dashboard with final costs integration"""

@@ -615,6 +615,10 @@ class DatabaseOperations:
             self.db.add(projection)
             self.db.commit()
             self.db.refresh(projection)
+            # Auto-update project status when first projection is created
+            projections_count = len(self.get_initial_projections_by_project(project_id))
+            if projections_count == 1:  # First projection created
+                self.update_project_status_automatically(project_id, 'projection_created')
             return projection
         except Exception as e:
             self.db.rollback()
@@ -837,6 +841,8 @@ class DatabaseOperations:
             self.db.add(disbursement)
             self.db.commit()
             self.db.refresh(disbursement)
+            # Auto-update project status when disbursements are made
+            self.update_project_status_automatically(project_id, 'disbursement_created')
             return disbursement
         except Exception as e:
             self.db.rollback()
@@ -1238,6 +1244,8 @@ class DatabaseOperations:
             self.db.add(final_cost)
             self.db.commit()
             self.db.refresh(final_cost)
+            # Auto-update project status when final costs are added
+            self.update_project_status_automatically(project_id, 'final_costs_added')
             return final_cost
         except Exception as e:
             self.db.rollback()
@@ -1581,7 +1589,7 @@ class DatabaseOperations:
             raise e
 
     def calculate_project_profit(self, project_id: int):
-        """Calculate comprehensive project profit analysis"""
+        """Calculate comprehensive project profit analysis - ENHANCED VERSION"""
         try:
             # Get project details
             project = self.get_project_by_id(project_id)
@@ -1594,27 +1602,41 @@ class DatabaseOperations:
             disbursements = self.get_disbursements_by_project(project_id)
             profit_configs = self.get_profit_sharing_configs_by_project(project_id)
             
-            # Calculate totals
+            # Calculate revenue (project value after VAT and AIT)
             total_revenue = project.final_po_value or 0.0
+            
+            # Calculate costs
             total_projected_cost = sum(p.amount for p in initial_projections)
-            total_actual_cost = sum(f.real_cost for f in final_costs)
-            total_disbursed = sum(d.amount for d in disbursements if d.disbursement_type != 'personal_loan')
+            total_actual_cost = sum(f.real_cost for f in final_costs) if final_costs else 0.0
             
-            # Calculate profit (use actual costs if available, otherwise projected)
+            # Use actual costs if available, otherwise use projected costs
             cost_basis = total_actual_cost if total_actual_cost > 0 else total_projected_cost
-            gross_profit = total_revenue - cost_basis
             
-            # Calculate profit sharing
+            # Calculate gross profit
+            gross_profit = total_revenue - cost_basis
+            profit_margin_percentage = (gross_profit / total_revenue * 100) if total_revenue > 0 else 0
+            
+            # Calculate disbursements by type
+            advance_disbursements = sum(d.amount for d in disbursements if d.disbursement_type == 'advance')
+            project_cost_disbursements = sum(d.amount for d in disbursements if d.disbursement_type == 'project_cost')
+            personal_loan_disbursements = sum(d.amount for d in disbursements if d.disbursement_type == 'personal_loan')
+            
+            # Total operational disbursements (excluding personal loans)
+            operational_disbursements = advance_disbursements + project_cost_disbursements
+            
+            # Calculate profit distribution
             profit_distribution = []
             total_percentage_allocated = 0
             
             for config in profit_configs:
                 profit_amount = (gross_profit * config.profit_percentage) / 100
                 profit_distribution.append({
+                    'task_id': config.task_description_id,
                     'task_name': config.task_description.task_name,
                     'assigned_to': config.assigned_person_company,
                     'percentage': config.profit_percentage,
-                    'amount': profit_amount
+                    'amount': profit_amount,
+                    'config_id': config.id
                 })
                 total_percentage_allocated += config.profit_percentage
             
@@ -1622,16 +1644,58 @@ class DatabaseOperations:
             unallocated_percentage = 100 - total_percentage_allocated
             unallocated_amount = (gross_profit * unallocated_percentage) / 100
             
+            # Calculate cash flow
+            total_collected = operational_disbursements  # Money actually disbursed from project
+            cash_flow_balance = total_revenue - total_collected
+            
+            # Cost efficiency metrics
+            cost_efficiency = (cost_basis / total_revenue * 100) if total_revenue > 0 else 0
+            
+            # Project financial health score (0-100)
+            health_score = 0
+            if profit_margin_percentage > 20:
+                health_score += 40
+            elif profit_margin_percentage > 10:
+                health_score += 30
+            elif profit_margin_percentage > 0:
+                health_score += 20
+            
+            if cost_efficiency < 70:
+                health_score += 30
+            elif cost_efficiency < 80:
+                health_score += 20
+            elif cost_efficiency < 90:
+                health_score += 10
+            
+            if total_percentage_allocated >= 90:
+                health_score += 30
+            elif total_percentage_allocated >= 70:
+                health_score += 20
+            elif total_percentage_allocated >= 50:
+                health_score += 10
+            
             return {
                 'project': project,
                 'financial_summary': {
                     'total_revenue': total_revenue,
                     'total_projected_cost': total_projected_cost,
                     'total_actual_cost': total_actual_cost,
-                    'total_disbursed': total_disbursed,
                     'cost_basis': cost_basis,
                     'gross_profit': gross_profit,
-                    'profit_margin_percentage': (gross_profit / total_revenue * 100) if total_revenue > 0 else 0
+                    'profit_margin_percentage': profit_margin_percentage,
+                    'cost_efficiency_percentage': cost_efficiency
+                },
+                'disbursement_summary': {
+                    'advance_disbursements': advance_disbursements,
+                    'project_cost_disbursements': project_cost_disbursements,
+                    'personal_loan_disbursements': personal_loan_disbursements,
+                    'operational_disbursements': operational_disbursements,
+                    'total_disbursements': sum(d.amount for d in disbursements)
+                },
+                'cash_flow': {
+                    'total_collected': total_collected,
+                    'cash_flow_balance': cash_flow_balance,
+                    'collection_rate': (total_collected / total_revenue * 100) if total_revenue > 0 else 0
                 },
                 'profit_distribution': profit_distribution,
                 'allocation_summary': {
@@ -1640,7 +1704,17 @@ class DatabaseOperations:
                     'unallocated_amount': unallocated_amount,
                     'total_distributed': sum(d['amount'] for d in profit_distribution)
                 },
-                'profit_configs': profit_configs
+                'metrics': {
+                    'financial_health_score': health_score,
+                    'cost_variance': total_actual_cost - total_projected_cost if total_actual_cost > 0 else 0,
+                    'cost_variance_percentage': ((total_actual_cost - total_projected_cost) / total_projected_cost * 100) if total_projected_cost > 0 and total_actual_cost > 0 else 0
+                },
+                'profit_configs': profit_configs,
+                'raw_data': {
+                    'initial_projections': initial_projections,
+                    'final_costs': final_costs,
+                    'disbursements': disbursements
+                }
             }
             
         except Exception as e:
@@ -1764,6 +1838,88 @@ class DatabaseOperations:
         except Exception as e:
             print(f"Error getting company profit summary: {str(e)}")
             return []
+    # -----
+    def update_project_status_automatically(self, project_id: int, trigger: str = None):
+        """Automatically update project status based on activities - NEW FUNCTION"""
+        try:
+            project = self.get_project_by_id(project_id)
+            if not project:
+                return False
+            
+            # Don't auto-update if project is already completed or cancelled
+            if project.status in ['completed', 'cancelled']:
+                return False
+            
+            # Determine new status based on project activities
+            new_status = self._determine_project_status(project_id, trigger)
+            
+            if new_status and new_status != project.status:
+                old_status = project.status
+                project.status = new_status
+                project.updated_at = datetime.now()
+                self.db.commit()
+                
+                print(f"✅ Project #{project_id} status updated: {old_status} → {new_status}")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"❌ Error updating project status: {str(e)}")
+            return False
+
+    def _determine_project_status(self, project_id: int, trigger: str = None):
+        """Determine appropriate project status based on activities"""
+        try:
+            # Check for various project activities
+            has_projections = len(self.get_initial_projections_by_project(project_id)) > 0
+            has_final_costs = len(self.get_final_costs_by_project(project_id)) > 0
+            has_disbursements = len(self.get_disbursements_by_project(project_id)) > 0
+            has_profit_sharing = len(self.get_profit_sharing_configs_by_project(project_id)) > 0
+            
+            # Get project for current status
+            project = self.get_project_by_id(project_id)
+            current_status = project.status
+            
+            # Status determination logic
+            if trigger == 'invoice_created':
+                return 'invoice_submitted'
+            elif trigger == 'final_bill_collected':
+                return 'completed'
+            elif has_final_costs and has_disbursements:
+                return 'active'
+            elif has_projections:
+                return 'active'
+            elif current_status == 'new':
+                # Keep as new until projections are created
+                return 'new'
+            else:
+                return None  # No status change needed
+                
+        except Exception as e:
+            print(f"Error determining project status: {str(e)}")
+            return None
+
+    def get_project_status_history(self, project_id: int):
+        """Get project status change history - PLACEHOLDER for future enhancement"""
+        # This would require a new table to track status changes
+        # For now, return current status info
+        try:
+            project = self.get_project_by_id(project_id)
+            if project:
+                return [{
+                    'status': project.status,
+                    'changed_at': project.updated_at or project.created_at,
+                    'changed_by': 'System'
+                }]
+            return []
+        except Exception as e:
+            print(f"Error getting status history: {str(e)}")
+            return []
+
+    def trigger_status_update(self, project_id: int, trigger: str):
+        """Manually trigger a status update with specific trigger"""
+        return self.update_project_status_automatically(project_id, trigger)
 #----
 
 # Test function for disbursement operations

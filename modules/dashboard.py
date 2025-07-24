@@ -64,7 +64,8 @@ def show_dashboard():
     with col1:
         show_project_timeline_analysis(dashboard_data)
     with col2:
-        show_financial_health_summary(dashboard_data)  # NEW SECTION
+        #show_financial_health_summary(dashboard_data)  # NEW SECTION
+        show_profit_overview_summary(dashboard_data)  # NEW SECTION
 
 def get_comprehensive_dashboard_data():
     """Get comprehensive data for dashboard analytics - ENHANCED WITH FINAL COSTS"""
@@ -108,10 +109,38 @@ def get_comprehensive_dashboard_data():
             }
             processed_companies.append(company_data)
         
-        # Get financial data - ENHANCED WITH FINAL COSTS
+        # Get financial data - ENHANCED WITH PROFIT CALCULATIONS
         projection_stats = db_ops.get_all_financial_projections_summary()
         final_cost_stats = db_ops.get_final_cost_summary()
         disbursement_stats = db_ops.get_disbursement_statistics()
+        
+        # Get profit calculation summaries for all projects
+        profit_summaries = []
+        total_gross_profit = 0
+        total_allocated_profit = 0
+        projects_with_profit_configs = 0
+        
+        for project_data in processed_projects:
+            try:
+                profit_data = db_ops.calculate_project_profit(project_data['id'])
+                if profit_data:
+                    profit_summary = {
+                        'project_id': project_data['id'],
+                        'project_name': project_data['project_name'],
+                        'gross_profit': profit_data['financial_summary']['gross_profit'],
+                        'profit_margin': profit_data['financial_summary']['profit_margin_percentage'],
+                        'allocated_profit': profit_data['allocation_summary']['total_distributed'],
+                        'health_score': profit_data['metrics']['financial_health_score'],
+                        'has_configs': len(profit_data['profit_configs']) > 0
+                    }
+                    profit_summaries.append(profit_summary)
+                    total_gross_profit += profit_summary['gross_profit']
+                    total_allocated_profit += profit_summary['allocated_profit']
+                    if profit_summary['has_configs']:
+                        projects_with_profit_configs += 1
+            except:
+                # Skip projects that can't calculate profit
+                pass
         
         # Calculate comprehensive statistics
         stats = {
@@ -183,6 +212,13 @@ def get_comprehensive_dashboard_data():
                 monthly_data[month_key] = monthly_data.get(month_key, 0) + 1
         
         stats['monthly_creation_data'] = monthly_data
+        # Add profit statistics
+        stats['profit_summaries'] = profit_summaries
+        stats['total_gross_profit'] = total_gross_profit
+        stats['total_allocated_profit'] = total_allocated_profit
+        stats['projects_with_profit_configs'] = projects_with_profit_configs
+        stats['average_profit_margin'] = sum(p['profit_margin'] for p in profit_summaries) / len(profit_summaries) if profit_summaries else 0
+        stats['average_health_score'] = sum(p['health_score'] for p in profit_summaries) / len(profit_summaries) if profit_summaries else 0
         
         # Recent projects (last 30 days)
         recent_date = datetime.now() - timedelta(days=30)
@@ -276,13 +312,22 @@ def show_key_metrics(data):
         )
     
     with col6:
-        # Disbursement metrics
-        total_disbursed = data['disbursement_stats'].get('total_amount', 0)
-        st.metric(
-            "Total Disbursed",
-            f"৳{total_disbursed:,.0f}",
-            delta=f"{data['disbursement_stats'].get('total_count', 0)} receipts"
-        )
+        # Profit metrics - NEW
+        profit_summaries = data.get('profit_summaries', [])
+        if profit_summaries:
+            avg_profit_margin = data.get('average_profit_margin', 0)
+            st.metric(
+                "Avg Profit Margin",
+                f"{avg_profit_margin:.1f}%",
+                delta=f"{len(profit_summaries)} projects analyzed"
+            )
+        else:
+            total_disbursed = data['disbursement_stats'].get('total_amount', 0)
+            st.metric(
+                "Total Disbursed",
+                f"৳{total_disbursed:,.0f}",
+                delta=f"{data['disbursement_stats'].get('total_count', 0)} receipts"
+            )
 
 # Add new function for cost performance chart
 def show_cost_performance_chart(data):
@@ -513,6 +558,28 @@ def show_recent_projects(data):
 
 def show_enhanced_quick_actions(user_role, data):
     """Show enhanced context-aware quick actions"""
+    # Profit-related alerts - NEW
+    profit_summaries = data.get('profit_summaries', [])
+    
+    if profit_summaries:
+        # Check for low-profit projects
+        low_profit_projects = [p for p in profit_summaries if p['profit_margin'] < 5]
+        if low_profit_projects:
+            st.error(f"🚨 {len(low_profit_projects)} project(s) with low profit margins (<5%)")
+            if st.button("📊 Review Profit Analysis", use_container_width=True):
+                st.session_state.page = "projects"
+                st.rerun()
+        
+        # Check for unallocated profits
+        total_gross = data.get('total_gross_profit', 0)
+        total_allocated = data.get('total_allocated_profit', 0)
+        if total_gross > 0 and (total_allocated / total_gross) < 0.8:
+            unallocated_pct = (1 - total_allocated / total_gross) * 100
+            st.warning(f"💰 {unallocated_pct:.0f}% of profits unallocated")
+            if st.button("🤝 Configure Profit Sharing", use_container_width=True):
+                st.session_state.page = "projects"
+                st.rerun()
+            
     st.subheader("⚡ Quick Actions")
     
     # Financial alerts
@@ -556,7 +623,87 @@ def show_enhanced_quick_actions(user_role, data):
         if st.button("🏢 Manage Companies", use_container_width=True):
             st.session_state.page = "settings"
             st.rerun()
-
+def show_profit_overview_summary(data):
+    """Show profit overview summary - NEW SECTION"""
+    st.subheader("💰 Profit Overview")
+    
+    profit_summaries = data.get('profit_summaries', [])
+    
+    if not profit_summaries:
+        st.info("💡 No profit calculations available. Configure profit sharing for projects to see profit analysis.")
+        return
+    
+    # Profit overview metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_gross_profit = data.get('total_gross_profit', 0)
+        st.metric("Total Gross Profit", f"৳{total_gross_profit:,.0f}")
+    
+    with col2:
+        total_allocated = data.get('total_allocated_profit', 0)
+        allocation_rate = (total_allocated / total_gross_profit * 100) if total_gross_profit > 0 else 0
+        st.metric("Allocated Profit", f"৳{total_allocated:,.0f}", delta=f"{allocation_rate:.1f}% allocated")
+    
+    with col3:
+        avg_margin = data.get('average_profit_margin', 0)
+        st.metric("Avg Profit Margin", f"{avg_margin:.1f}%")
+    
+    with col4:
+        avg_health = data.get('average_health_score', 0)
+        projects_with_configs = data.get('projects_with_profit_configs', 0)
+        st.metric("Avg Health Score", f"{avg_health:.0f}/100", delta=f"{projects_with_configs} configured")
+    
+    # Top performing projects
+    if len(profit_summaries) >= 3:
+        st.markdown("#### 🏆 Top Performing Projects")
+        
+        # Sort by profit margin
+        top_projects = sorted(profit_summaries, key=lambda x: x['profit_margin'], reverse=True)[:5]
+        
+        for i, project in enumerate(top_projects):
+            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+            
+            with col1:
+                rank_icon = ["🥇", "🥈", "🥉", "🏅", "⭐"][i] if i < 5 else "📊"
+                st.markdown(f"**{rank_icon} {project['project_name']}**")
+            
+            with col2:
+                st.metric("Profit", f"৳{project['gross_profit']:,.0f}")
+            
+            with col3:
+                st.metric("Margin", f"{project['profit_margin']:.1f}%")
+            
+            # with col4:
+            #     health_icon = "🟢" if project['health_score'] >= 80 else "🟡" if project['health_score'] >= 60 else "🔴"
+            #     st.markdown(f"{health_icon} {project['health_score']:.0f}")
+    
+    # Profit health distribution
+    if profit_summaries:
+        st.markdown("#### 📊 Profit Health Distribution")
+        
+        health_categories = {'Excellent (80+)': 0, 'Good (60-79)': 0, 'Fair (40-59)': 0, 'Poor (<40)': 0}
+        
+        for project in profit_summaries:
+            score = project['health_score']
+            if score >= 80:
+                health_categories['Excellent (80+)'] += 1
+            elif score >= 60:
+                health_categories['Good (60-79)'] += 1
+            elif score >= 40:
+                health_categories['Fair (40-59)'] += 1
+            else:
+                health_categories['Poor (<40)'] += 1
+        
+        col1, col2, col3, col4 = st.columns(4)
+        cols = [col1, col2, col3, col4]
+        colors = ['success', 'info', 'warning', 'error']
+        
+        for i, (category, count) in enumerate(health_categories.items()):
+            with cols[i]:
+                percentage = (count / len(profit_summaries) * 100) if profit_summaries else 0
+                st.metric(category, count, delta=f"{percentage:.0f}%")
+                
 def show_financial_health_summary(data):
     """Show financial health summary - NEW SECTION"""
     st.subheader("💊 Financial Health")

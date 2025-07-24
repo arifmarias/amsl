@@ -21,7 +21,7 @@ def show_projects():
         return
     
     # Tab navigation
-    tab1, tab2, tab3 = st.tabs(["📊 All Projects", "➕ New Project", "🔍 Search & Filter"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 All Projects", "➕ New Project", "🔍 Search & Filter", "🤝 Profit Sharing"])
     
     with tab1:
         show_all_projects()
@@ -31,6 +31,47 @@ def show_projects():
     
     with tab3:
         show_project_search()
+        
+    with tab4:
+        show_project_profit_sharing()
+
+def show_project_profit_sharing():
+    """Show profit sharing management in projects module"""
+    # Import the profit sharing functions from financial module
+    from modules.financial import (
+        show_profit_sharing_management, 
+        show_profit_sharing_form, 
+        show_edit_profit_sharing_form,
+        show_profit_calculation
+    )
+    
+    st.subheader("🤝 Project Profit Sharing Management")
+    
+    user = AuthenticationManager.get_current_user()
+    
+    # Only admin and regular users can access profit sharing
+    if user['role'] == 'finance':
+        st.error("🔒 Access denied. Profit sharing is only available to admin and regular users.")
+        st.info("💡 Finance users can access Initial Projections and Final Costs in Financial Management.")
+        return
+    
+    # Handle profit sharing form display
+    if st.session_state.get('show_profit_sharing_form'):
+        show_profit_sharing_form()
+        return
+    
+    # Handle editing
+    if st.session_state.get('edit_profit_sharing_id'):
+        show_edit_profit_sharing_form(st.session_state.edit_profit_sharing_id)
+        return
+    
+    # Handle profit calculation view
+    if st.session_state.get('show_profit_calculation'):
+        show_profit_calculation(st.session_state.show_profit_calculation)
+        return
+    
+    # Show the main profit sharing management interface
+    show_profit_sharing_management()
 
 def show_all_projects():
     """Display all projects in a table"""
@@ -76,25 +117,73 @@ def show_all_projects():
             )
             
             # Project actions
+            # Project actions - ENHANCED LAYOUT
             st.subheader("📝 Project Actions")
-            col1, col2, col3 = st.columns(3)
+            
+            col1, col2 = st.columns([2, 1])
             
             with col1:
                 selected_id = st.selectbox(
-                    "Select Project ID for Actions:",
+                    "Select Project for Actions:",
                     options=[p['ID'] for p in project_data],
                     format_func=lambda x: f"#{x} - {next(p['Project Name'] for p in project_data if p['ID'] == x)}"
                 )
             
             with col2:
-                if st.button("👀 View Details", key=f"view_details_{selected_id}"):
+                # Get selected project data for validation
+                selected_project_data = next(p for p in project_data if p['ID'] == selected_id)
+                st.info(f"**Selected:** {selected_project_data['Project Name']}")
+            
+            # Action buttons in vertical layout
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("👀 View Details", key=f"view_details_{selected_id}", use_container_width=True):
                     st.session_state.show_project_details = selected_id
                     st.rerun()
             
-            with col3:
-                if st.button("✏️ Edit Project", key=f"edit_project_{selected_id}"):
+            with col2:
+                if st.button("✏️ Edit Project", key=f"edit_project_{selected_id}", use_container_width=True):
                     st.session_state.edit_project_id = selected_id
                     st.rerun()
+            
+            with col3:
+                if st.button("🗑️ Delete Project", key=f"delete_project_{selected_id}", use_container_width=True):
+                    st.session_state.delete_project_id = selected_id
+                    st.rerun()
+            
+            # Handle delete confirmation
+            if st.session_state.get('delete_project_id'):
+                project_to_delete_id = st.session_state.delete_project_id
+                project_to_delete = next(p for p in project_data if p['ID'] == project_to_delete_id)
+                
+                st.markdown("---")
+                st.error(f"⚠️ **CONFIRM DELETION**")
+                st.warning(f"Are you sure you want to delete project: **{project_to_delete['Project Name']}**?")
+                
+                # Check for dependencies before showing confirmation
+                dependency_check = check_project_dependencies(project_to_delete_id)
+                
+                if dependency_check['can_delete']:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Yes, Delete Permanently", key="confirm_delete_project", type="primary"):
+                            if delete_project_with_validation(project_to_delete_id):
+                                st.success(f"✅ Project '{project_to_delete['Project Name']}' deleted successfully!")
+                                del st.session_state.delete_project_id
+                                st.rerun()
+                    with col2:
+                        if st.button("❌ Cancel", key="cancel_delete_project"):
+                            del st.session_state.delete_project_id
+                            st.rerun()
+                else:
+                    st.error("❌ **Cannot delete this project!**")
+                    for reason in dependency_check['reasons']:
+                        st.error(f"• {reason}")
+                    
+                    if st.button("❌ Cancel Deletion", key="cancel_delete_blocked"):
+                        del st.session_state.delete_project_id
+                        st.rerun()
         
         else:
             st.info("📭 No projects found. Create your first project using the 'New Project' tab.")
@@ -112,7 +201,73 @@ def show_all_projects():
         st.error(f"Error loading projects: {str(e)}")
     finally:
         db_ops.close()
+def check_project_dependencies(project_id):
+    """Check if project has dependencies that prevent deletion"""
+    db_ops = DatabaseOperations()
+    try:
+        reasons = []
+        
+        # Check for initial projections
+        projections = db_ops.get_initial_projections_by_project(project_id)
+        if projections:
+            reasons.append(f"Has {len(projections)} initial financial projection(s)")
+        
+        # Check for final costs
+        final_costs = db_ops.get_final_costs_by_project(project_id)
+        if final_costs:
+            reasons.append(f"Has {len(final_costs)} final cost record(s)")
+        
+        # Check for disbursements
+        disbursements = db_ops.get_disbursements_by_project(project_id)
+        if disbursements:
+            reasons.append(f"Has {len(disbursements)} disbursement(s)")
+        
+        # Check for profit sharing configs
+        profit_configs = db_ops.get_profit_sharing_configs_by_project(project_id)
+        if profit_configs:
+            reasons.append(f"Has {len(profit_configs)} profit sharing configuration(s)")
+        
+        return {
+            'can_delete': len(reasons) == 0,
+            'reasons': reasons
+        }
+        
+    except Exception as e:
+        return {
+            'can_delete': False,
+            'reasons': [f"Error checking dependencies: {str(e)}"]
+        }
+    finally:
+        db_ops.close()
 
+def delete_project_with_validation(project_id):
+    """Delete project with proper validation"""
+    db_ops = DatabaseOperations()
+    try:
+        # Double-check dependencies
+        dependency_check = check_project_dependencies(project_id)
+        if not dependency_check['can_delete']:
+            st.error("❌ Cannot delete project due to existing dependencies!")
+            return False
+        
+        # Get project for confirmation
+        project = db_ops.get_project_by_id(project_id)
+        if not project:
+            st.error("❌ Project not found!")
+            return False
+        
+        # Delete the project
+        db_ops.db.delete(project)
+        db_ops.db.commit()
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Error deleting project: {str(e)}")
+        return False
+    finally:
+        db_ops.close()
+        
 def show_new_project_form():
     """Display new project creation form - ENHANCED WITH ADVANCE FIELD"""
     st.subheader("➕ Create New Project")
@@ -737,7 +892,71 @@ def show_project_advance_management(project):
                     st.error(f"Error updating advance amount: {str(e)}")
                 finally:
                     db_ops.close()
-                    
+
+def get_project_status_info(project):
+    """Get enhanced project status information"""
+    status_colors = {
+        'new': '🆕',
+        'active': '🟢',
+        'invoice_submitted': '📄',
+        'completed': '✅',
+        'on_hold': '⏸️',
+        'cancelled': '❌'
+    }
+    
+    status_descriptions = {
+        'new': 'New Project',
+        'active': 'Active Project',
+        'invoice_submitted': 'Invoice Submitted',
+        'completed': 'Completed',
+        'on_hold': 'On Hold',
+        'cancelled': 'Cancelled'
+    }
+    
+    icon = status_colors.get(project.status, '⚪')
+    description = status_descriptions.get(project.status, project.status.title())
+    
+    return {
+        'display': f"{icon} {description}",
+        'last_updated': project.updated_at.strftime('%Y-%m-%d %H:%M') if project.updated_at else 'N/A'
+    }
+
+def show_status_progression(project):
+    """Show project status progression"""
+    db_ops = DatabaseOperations()
+    try:
+        # Check project activities
+        projections = db_ops.get_initial_projections_by_project(project.id)
+        final_costs = db_ops.get_final_costs_by_project(project.id)
+        disbursements = db_ops.get_disbursements_by_project(project.id)
+        profit_configs = db_ops.get_profit_sharing_configs_by_project(project.id)
+        
+        st.markdown("**📊 Project Progress:**")
+        
+        # Progress indicators
+        progress_items = [
+            ("Project Created", True, "✅"),
+            ("Financial Projections", len(projections) > 0, "✅" if len(projections) > 0 else "⏳"),
+            ("Final Costs Tracked", len(final_costs) > 0, "✅" if len(final_costs) > 0 else "⏳"),
+            ("Disbursements Made", len(disbursements) > 0, "✅" if len(disbursements) > 0 else "⏳"),
+            ("Profit Configured", len(profit_configs) > 0, "✅" if len(profit_configs) > 0 else "⏳"),
+        ]
+        
+        for item, completed, icon in progress_items:
+            color = "green" if completed else "gray"
+            st.markdown(f"<span style='color: {color}'>{icon} {item}</span>", unsafe_allow_html=True)
+        
+        # Calculate completion percentage
+        completion_rate = sum(1 for _, completed, _ in progress_items if completed) / len(progress_items) * 100
+        
+        st.progress(completion_rate / 100)
+        st.caption(f"Project Completion: {completion_rate:.0f}%")
+        
+    except Exception as e:
+        st.error(f"Error loading progress: {str(e)}")
+    finally:
+        db_ops.close()
+                   
 def show_project_details(project_id):
     """Show detailed view of a specific project"""
     st.subheader(f"📄 Project Details - #{project_id}")
@@ -788,13 +1007,22 @@ def show_project_details(project_id):
                     """)
                 
                 with col2:
-                    st.markdown("### 🏢 Companies")
+                    st.markdown("### 🏢 Companies & Status")
                     client_name = project.po_issuing_company.name if project.po_issuing_company else 'N/A'
                     supplier_name = project.supplier_company.name if project.supplier_company else 'N/A'
+                    
+                    # Enhanced status display
+                    status_info = get_project_status_info(project)
+                    
                     st.info(f"""
                     **Client:** {client_name}  
-                    **Supplier:** {supplier_name}
+                    **Supplier:** {supplier_name}  
+                    **Status:** {status_info['display']}  
+                    **Last Updated:** {status_info['last_updated']}
                     """)
+                    
+                    # Status progression indicator
+                    show_status_progression(project)
             
             with tab2:
                 st.markdown("### 💰 Financial Details")
