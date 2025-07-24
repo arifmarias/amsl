@@ -1218,6 +1218,243 @@ class DatabaseOperations:
         except Exception as e:
             print(f"Error getting projects advance overview: {str(e)}")
             return []
+    
+    #-------
+    def create_final_financial_cost(self, project_id: int, sl_no: int, particulars: str, 
+                                days: float = 0.0, qty: float = 0.0, unit_price: float = 0.0, 
+                                amount: float = 0.0, real_cost: float = 0.0):
+        """Create a new final financial cost item"""
+        try:
+            final_cost = FinalFinancialCost(
+                project_id=project_id,
+                sl_no=sl_no,
+                particulars=particulars,
+                days=days,
+                qty=qty,
+                unit_price=unit_price,
+                amount=amount,  # From initial projection
+                real_cost=real_cost  # Actual cost
+            )
+            self.db.add(final_cost)
+            self.db.commit()
+            self.db.refresh(final_cost)
+            return final_cost
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def get_final_costs_by_project(self, project_id: int):
+        """Get all final costs for a project"""
+        return self.db.query(FinalFinancialCost).filter(
+            FinalFinancialCost.project_id == project_id
+        ).order_by(FinalFinancialCost.sl_no).all()
+
+    def get_final_cost_by_id(self, cost_id: int):
+        """Get final cost by ID"""
+        return self.db.query(FinalFinancialCost).filter(
+            FinalFinancialCost.id == cost_id
+        ).first()
+
+    def update_final_cost(self, cost_id: int, particulars: str = None, 
+                        days: float = None, qty: float = None, 
+                        unit_price: float = None, amount: float = None,
+                        real_cost: float = None):
+        """Update a final cost"""
+        try:
+            final_cost = self.db.query(FinalFinancialCost).filter(
+                FinalFinancialCost.id == cost_id
+            ).first()
+            
+            if final_cost:
+                if particulars is not None:
+                    final_cost.particulars = particulars
+                if days is not None:
+                    final_cost.days = days
+                if qty is not None:
+                    final_cost.qty = qty
+                if unit_price is not None:
+                    final_cost.unit_price = unit_price
+                if amount is not None:
+                    final_cost.amount = amount
+                if real_cost is not None:
+                    final_cost.real_cost = real_cost
+                
+                final_cost.updated_at = datetime.now()
+                self.db.commit()
+                return final_cost
+            return None
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def delete_final_cost(self, cost_id: int):
+        """Delete a final cost"""
+        try:
+            final_cost = self.db.query(FinalFinancialCost).filter(
+                FinalFinancialCost.id == cost_id
+            ).first()
+            
+            if final_cost:
+                self.db.delete(final_cost)
+                self.db.commit()
+                return True
+            return False
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def delete_final_costs_by_project(self, project_id: int):
+        """Delete all final costs for a project"""
+        try:
+            final_costs = self.db.query(FinalFinancialCost).filter(
+                FinalFinancialCost.project_id == project_id
+            ).all()
+            
+            for cost in final_costs:
+                self.db.delete(cost)
+            
+            self.db.commit()
+            return True
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def copy_initial_to_final_costs(self, project_id: int):
+        """Copy initial projections to final costs for editing"""
+        try:
+            # Get initial projections
+            initial_projections = self.get_initial_projections_by_project(project_id)
+            
+            if not initial_projections:
+                return False, "No initial projections found for this project"
+            
+            # Delete existing final costs
+            self.delete_final_costs_by_project(project_id)
+            
+            # Copy projections to final costs
+            for proj in initial_projections:
+                final_cost = FinalFinancialCost(
+                    project_id=project_id,
+                    sl_no=proj.sl_no,
+                    particulars=proj.particulars,
+                    days=proj.days,
+                    qty=proj.qty,
+                    unit_price=proj.unit_price,
+                    amount=proj.amount,  # From projection
+                    real_cost=0.0  # To be filled by user
+                )
+                self.db.add(final_cost)
+            
+            self.db.commit()
+            return True, f"Copied {len(initial_projections)} items to final costs"
+            
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def get_cost_variance_analysis(self, project_id: int):
+        """Get comprehensive cost variance analysis"""
+        try:
+            # Get project details
+            project = self.get_project_by_id(project_id)
+            if not project:
+                return None
+            
+            # Get initial projections and final costs
+            initial_projections = self.get_initial_projections_by_project(project_id)
+            final_costs = self.get_final_costs_by_project(project_id)
+            
+            # Calculate totals
+            initial_total = sum(p.amount for p in initial_projections)
+            final_total = sum(f.real_cost for f in final_costs)
+            
+            # Calculate variance
+            variance_amount = final_total - initial_total
+            variance_percentage = (variance_amount / initial_total * 100) if initial_total > 0 else 0
+            
+            # Get disbursements
+            disbursements = self.get_disbursements_by_project(project_id)
+            total_disbursed = sum(d.amount for d in disbursements)
+            
+            return {
+                'project': project,
+                'initial_projection_total': initial_total,
+                'final_cost_total': final_total,
+                'variance_amount': variance_amount,
+                'variance_percentage': variance_percentage,
+                'total_disbursed': total_disbursed,
+                'budget_remaining': (project.final_po_value or 0) - total_disbursed,
+                'initial_projections': initial_projections,
+                'final_costs': final_costs,
+                'disbursements': disbursements
+            }
+            
+        except Exception as e:
+            print(f"Error getting variance analysis: {str(e)}")
+            return None
+
+    def get_projects_with_final_costs(self):
+        """Get all projects that have final costs"""
+        try:
+            from sqlalchemy import func
+            
+            projects_with_costs = self.db.query(
+                Project,
+                func.count(FinalFinancialCost.id).label('cost_count'),
+                func.sum(FinalFinancialCost.real_cost).label('total_real_cost'),
+                func.sum(FinalFinancialCost.amount).label('total_projected_cost')
+            ).outerjoin(
+                FinalFinancialCost, Project.id == FinalFinancialCost.project_id
+            ).group_by(Project.id).all()
+            
+            return projects_with_costs
+            
+        except Exception as e:
+            print(f"Error getting projects with final costs: {str(e)}")
+            return []
+
+    def get_final_cost_summary(self):
+        """Get summary of all final costs"""
+        try:
+            from sqlalchemy import func
+            
+            summary = self.db.query(
+                func.count(FinalFinancialCost.id).label('total_items'),
+                func.sum(FinalFinancialCost.amount).label('total_projected'),
+                func.sum(FinalFinancialCost.real_cost).label('total_real_cost'),
+                func.count(func.distinct(FinalFinancialCost.project_id)).label('projects_with_costs')
+            ).first()
+            
+            total_projects = self.db.query(Project).count()
+            
+            projected_total = summary.total_projected or 0.0
+            real_total = summary.total_real_cost or 0.0
+            variance = real_total - projected_total
+            variance_percentage = (variance / projected_total * 100) if projected_total > 0 else 0
+            
+            return {
+                'total_cost_items': summary.total_items or 0,
+                'total_projected_cost': projected_total,
+                'total_real_cost': real_total,
+                'variance_amount': variance,
+                'variance_percentage': variance_percentage,
+                'projects_with_costs': summary.projects_with_costs or 0,
+                'total_projects': total_projects,
+                'projects_without_costs': total_projects - (summary.projects_with_costs or 0)
+            }
+            
+        except Exception as e:
+            print(f"Error getting final cost summary: {str(e)}")
+            return {
+                'total_cost_items': 0,
+                'total_projected_cost': 0.0,
+                'total_real_cost': 0.0,
+                'variance_amount': 0.0,
+                'variance_percentage': 0.0,
+                'projects_with_costs': 0,
+                'total_projects': 0,
+                'projects_without_costs': 0
+            }
 #----
 
 # Test function for disbursement operations

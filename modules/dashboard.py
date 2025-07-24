@@ -8,7 +8,7 @@ from modules.auth import AuthenticationManager
 import calendar
 
 def show_dashboard():
-    """Enhanced dashboard page with real data"""
+    """Enhanced dashboard page with final costs integration"""
     
     user = AuthenticationManager.get_current_user()
     
@@ -35,7 +35,7 @@ def show_dashboard():
         show_empty_dashboard()
         return
     
-    # Key Metrics Row
+    # Key Metrics Row - ENHANCED
     show_key_metrics(dashboard_data)
     
     # Charts Row
@@ -43,12 +43,12 @@ def show_dashboard():
     with col1:
         show_project_status_distribution(dashboard_data)
     with col2:
-        show_revenue_analysis(dashboard_data)
+        show_cost_performance_chart(dashboard_data)  # NEW CHART
     
     # Secondary Charts Row
     col1, col2 = st.columns(2)
     with col1:
-        show_company_distribution(dashboard_data)
+        show_revenue_analysis(dashboard_data)
     with col2:
         show_monthly_project_creation(dashboard_data)
     
@@ -57,17 +57,17 @@ def show_dashboard():
     with col1:
         show_recent_projects(dashboard_data)
     with col2:
-        show_quick_actions(user['role'], dashboard_data)
+        show_enhanced_quick_actions(user['role'], dashboard_data)  # ENHANCED
     
     # Bottom Row - System Status and Activities
     col1, col2 = st.columns(2)
     with col1:
         show_project_timeline_analysis(dashboard_data)
     with col2:
-        show_system_health()
+        show_financial_health_summary(dashboard_data)  # NEW SECTION
 
 def get_comprehensive_dashboard_data():
-    """Get comprehensive data for dashboard analytics - FIXED VERSION"""
+    """Get comprehensive data for dashboard analytics - ENHANCED WITH FINAL COSTS"""
     db_ops = DatabaseOperations()
     try:
         # Get all data while session is active
@@ -108,6 +108,11 @@ def get_comprehensive_dashboard_data():
             }
             processed_companies.append(company_data)
         
+        # Get financial data - ENHANCED WITH FINAL COSTS
+        projection_stats = db_ops.get_all_financial_projections_summary()
+        final_cost_stats = db_ops.get_final_cost_summary()
+        disbursement_stats = db_ops.get_disbursement_statistics()
+        
         # Calculate comprehensive statistics
         stats = {
             'projects': processed_projects,
@@ -115,7 +120,11 @@ def get_comprehensive_dashboard_data():
             'tasks': tasks,
             'total_projects': len(processed_projects),
             'total_companies': len(processed_companies),
-            'total_tasks': len(tasks)
+            'total_tasks': len(tasks),
+            # Financial data
+            'projection_stats': projection_stats,
+            'final_cost_stats': final_cost_stats,
+            'disbursement_stats': disbursement_stats
         }
         
         # Project status breakdown
@@ -217,10 +226,10 @@ def show_empty_dashboard():
             st.rerun()
 
 def show_key_metrics(data):
-    """Display key performance metrics"""
+    """Display key performance metrics - ENHANCED WITH FINAL COSTS"""
     st.subheader("📈 Key Performance Indicators")
     
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
         completion_rate = (data['completed_projects'] / data['total_projects'] * 100) if data['total_projects'] > 0 else 0
@@ -241,25 +250,84 @@ def show_key_metrics(data):
         st.metric(
             "Total Revenue",
             f"৳{data['total_revenue']:,.0f}",
-            delta=f"৳{data['average_project_value']:,.0f} avg/project"
+            delta=f"৳{data['average_project_value']:,.0f} avg"
         )
     
     with col4:
+        # Financial tracking metrics
+        projection_amount = data['projection_stats'].get('total_projection_amount', 0)
         st.metric(
-            "Companies",
-            data['total_companies'],
-            delta=f"{data['customer_count']} customers"
+            "Projected Costs",
+            f"৳{projection_amount:,.0f}",
+            delta=f"{data['projection_stats'].get('projects_with_projections', 0)} projects"
         )
     
     with col5:
-        urgent_projects = data['overdue_projects'] + data['upcoming_deadlines']
-        delta_color = "inverse" if urgent_projects > 0 else "normal"
+        # Final costs metrics
+        final_cost_amount = data['final_cost_stats'].get('total_real_cost', 0)
+        variance_pct = data['final_cost_stats'].get('variance_percentage', 0)
+        delta_color = "inverse" if variance_pct > 0 else "normal"
+        
         st.metric(
-            "Urgent Projects",
-            urgent_projects,
-            delta=f"{data['overdue_projects']} overdue",
+            "Actual Costs",
+            f"৳{final_cost_amount:,.0f}",
+            delta=f"{variance_pct:+.1f}% variance",
             delta_color=delta_color
         )
+    
+    with col6:
+        # Disbursement metrics
+        total_disbursed = data['disbursement_stats'].get('total_amount', 0)
+        st.metric(
+            "Total Disbursed",
+            f"৳{total_disbursed:,.0f}",
+            delta=f"{data['disbursement_stats'].get('total_count', 0)} receipts"
+        )
+
+# Add new function for cost performance chart
+def show_cost_performance_chart(data):
+    """Show cost performance analysis chart"""
+    st.subheader("💰 Cost Performance Analysis")
+    
+    try:
+        import plotly.graph_objects as go
+        
+        # Get cost data
+        projected = data['projection_stats'].get('total_projection_amount', 0)
+        actual = data['final_cost_stats'].get('total_real_cost', 0)
+        disbursed = data['disbursement_stats'].get('total_amount', 0)
+        
+        # Create cost comparison chart
+        categories = ['Projected Costs', 'Actual Costs', 'Disbursed Amount']
+        values = [projected, actual, disbursed]
+        colors = ['#007bff', '#28a745', '#ffc107']
+        
+        if any(values):
+            fig = go.Figure(data=[
+                go.Bar(
+                    x=categories,
+                    y=values,
+                    marker_color=colors,
+                    text=[f"৳{val:,.0f}" for val in values],
+                    textposition='auto',
+                    hovertemplate='<b>%{x}</b><br>Amount: ৳%{y:,.0f}<extra></extra>'
+                )
+            ])
+            
+            fig.update_layout(
+                height=350,
+                xaxis_title="Cost Categories",
+                yaxis_title="Amount (৳)",
+                showlegend=False,
+                margin=dict(t=20, b=20, l=20, r=20)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No cost data available for visualization.")
+            
+    except Exception as e:
+        st.info(f"Chart not available: {str(e)}")
 
 def show_project_status_distribution(data):
     """Show project status distribution pie chart"""
@@ -443,9 +511,19 @@ def show_recent_projects(data):
         st.session_state.page = "projects"
         st.rerun()
 
-def show_quick_actions(user_role, data):
-    """Show context-aware quick actions"""
+def show_enhanced_quick_actions(user_role, data):
+    """Show enhanced context-aware quick actions"""
     st.subheader("⚡ Quick Actions")
+    
+    # Financial alerts
+    variance_pct = data['final_cost_stats'].get('variance_percentage', 0)
+    if variance_pct > 10:
+        st.error(f"🚨 High cost variance: {variance_pct:+.1f}%")
+        if st.button("📊 View Cost Analysis", use_container_width=True):
+            st.session_state.page = "financial"
+            st.rerun()
+    elif variance_pct > 5:
+        st.warning(f"⚠️ Cost variance: {variance_pct:+.1f}%")
     
     # Action based on current data
     if data['overdue_projects'] > 0:
@@ -457,10 +535,6 @@ def show_quick_actions(user_role, data):
     
     if data['upcoming_deadlines'] > 0:
         st.info(f"📅 {data['upcoming_deadlines']} upcoming deadline(s)")
-        if st.button("📋 View Upcoming Deadlines", use_container_width=True):
-            st.session_state.page = "projects"
-            st.session_state.filter_upcoming = True
-            st.rerun()
     
     # Standard quick actions
     if st.button("➕ New Project", use_container_width=True):
@@ -468,34 +542,61 @@ def show_quick_actions(user_role, data):
         st.session_state.action = "new_project"
         st.rerun()
     
-    if st.button("💰 Add Disbursement", use_container_width=True):
+    if st.button("💰 Financial Management", use_container_width=True):
+        st.session_state.page = "financial"
+        st.rerun()
+    
+    if st.button("💸 New Disbursement", use_container_width=True):
         st.session_state.page = "financial"
         st.session_state.action = "new_disbursement"
         st.rerun()
     
+    # Admin actions
     if user_role == 'admin':
         if st.button("🏢 Manage Companies", use_container_width=True):
             st.session_state.page = "settings"
             st.rerun()
-        
-        if st.button("👥 User Management", use_container_width=True):
-            st.session_state.show_user_management = True
-            st.rerun()
+
+def show_financial_health_summary(data):
+    """Show financial health summary - NEW SECTION"""
+    st.subheader("💊 Financial Health")
     
-    # Data insights
-    st.markdown("### 📊 Quick Insights")
+    # Cost tracking progress
+    total_projects = data['total_projects']
+    projects_with_costs = data['final_cost_stats'].get('projects_with_costs', 0)
+    tracking_rate = (projects_with_costs / total_projects * 100) if total_projects > 0 else 0
     
-    if data['total_projects'] > 0:
-        completion_rate = (data['completed_projects'] / data['total_projects']) * 100
-        if completion_rate > 80:
-            st.success(f"🎉 Excellent completion rate: {completion_rate:.1f}%")
-        elif completion_rate > 60:
-            st.info(f"👍 Good completion rate: {completion_rate:.1f}%")
-        else:
-            st.warning(f"📈 Completion rate needs improvement: {completion_rate:.1f}%")
+    st.metric("Cost Tracking Rate", f"{tracking_rate:.0f}%")
     
-    if data['average_project_value'] > 0:
-        st.metric("Avg Project Value", f"৳{data['average_project_value']:,.0f}")
+    # Financial health indicators
+    variance_pct = data['final_cost_stats'].get('variance_percentage', 0)
+    
+    if abs(variance_pct) <= 5:
+        st.success("✅ Excellent Cost Control")
+    elif abs(variance_pct) <= 10:
+        st.warning("⚠️ Monitor Cost Variance")
+    else:
+        st.error("🚨 Review Cost Management")
+    
+    # Budget utilization
+    projected_total = data['projection_stats'].get('total_projection_amount', 0)
+    disbursed_total = data['disbursement_stats'].get('total_amount', 0)
+    
+    if projected_total > 0:
+        utilization = (disbursed_total / projected_total * 100)
+        st.metric("Budget Utilization", f"{utilization:.0f}%")
+    
+    # Quick stats
+    st.markdown("#### 📊 Quick Stats")
+    st.success(f"✅ Projects tracked: {projects_with_costs}/{total_projects}")
+    st.info(f"📋 Cost items: {data['final_cost_stats'].get('total_cost_items', 0)}")
+    st.info(f"💸 Disbursements: {data['disbursement_stats'].get('total_count', 0)}")
+    
+    # Last update info
+    st.caption(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
+    
+    if st.button("🔄 Refresh", use_container_width=True):
+        st.rerun()
 
 def show_project_timeline_analysis(data):
     """Show project timeline analysis"""
