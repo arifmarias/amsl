@@ -28,13 +28,14 @@ def show_financial():
         st.error("Access denied. Insufficient permissions.")
 
 def show_full_financial_interface():
-    """Full financial interface for admin and regular users"""
+    """Full financial interface for admin and regular users - UPDATED WITH PROFIT SHARING"""
     
-    # Tab navigation - UPDATED with Final Costs tab
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # Tab navigation - UPDATED with Profit Sharing tab
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Financial Overview", 
         "📋 Initial Projections", 
-        "💰 Final Costs",  # NEW TAB
+        "💰 Final Costs",
+        "🤝 Profit Sharing",  # NEW TAB
         "💸 Disbursements",
         "📈 Financial Reports"
     ])
@@ -46,27 +47,765 @@ def show_full_financial_interface():
         show_initial_projections()
     
     with tab3:
-        show_final_costs()  # NEW TAB CONTENT
+        show_final_costs()
     
     with tab4:
-        show_disbursement_management()
+        show_profit_sharing()  # NEW TAB CONTENT
     
     with tab5:
+        show_disbursement_management()
+    
+    with tab6:
         show_financial_reports()
 
+# Finance user interface remains the same (no profit sharing access for finance users)
 def show_finance_user_interface():
     """Limited interface for finance users"""
     
     st.info("🔒 **Finance User Access**: You can view and edit Initial Financial Projections and Final Financial Cost (real cost column only).")
     
-    # Tab navigation for finance users - UPDATED
+    # Tab navigation for finance users - NO PROFIT SHARING ACCESS
     tab1, tab2 = st.tabs(["📋 Initial Projections", "💰 Final Costs"])
     
     with tab1:
         show_initial_projections()
     
     with tab2:
-        show_final_costs()  # Finance users can access final costs
+        show_final_costs()
+
+def show_profit_sharing():
+    """Show profit sharing management"""
+    st.subheader("🤝 Profit Sharing Management")
+    
+    user = AuthenticationManager.get_current_user()
+    
+    # Only admin and regular users can access profit sharing
+    if user['role'] == 'finance':
+        st.error("🔒 Access denied. Profit sharing is only available to admin and regular users.")
+        st.info("💡 Finance users can access Initial Projections and Final Costs only.")
+        return
+    
+    # Handle profit sharing form display
+    if st.session_state.get('show_profit_sharing_form'):
+        show_profit_sharing_form()
+        return
+    
+    # Handle editing
+    if st.session_state.get('edit_profit_sharing_id'):
+        show_edit_profit_sharing_form(st.session_state.edit_profit_sharing_id)
+        return
+    
+    # Handle profit calculation view
+    if st.session_state.get('show_profit_calculation'):
+        show_profit_calculation(st.session_state.show_profit_calculation)
+        return
+    
+    # Profit sharing management
+    show_profit_sharing_management()
+
+def show_profit_sharing_management():
+    """Show profit sharing management interface"""
+    
+    # Get projects for profit sharing
+    db_ops = DatabaseOperations()
+    try:
+        projects = db_ops.get_all_projects()
+        
+        if not projects:
+            st.warning("⚠️ No projects found. Please create a project first.")
+            return
+        
+        # Get profit sharing summary
+        profit_summary = db_ops.get_profit_sharing_summary()
+        
+        # Show overview metrics
+        st.markdown("### 📊 Profit Sharing Overview")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Total Projects",
+                profit_summary['total_projects']
+            )
+        
+        with col2:
+            st.metric(
+                "With Profit Sharing",
+                profit_summary['projects_with_profit_sharing']
+            )
+        
+        with col3:
+            st.metric(
+                "Needs Configuration",
+                profit_summary['projects_without_profit_sharing']
+            )
+        
+        with col4:
+            completion_rate = 0
+            if profit_summary['total_projects'] > 0:
+                completion_rate = (profit_summary['projects_with_profit_sharing'] / profit_summary['total_projects']) * 100
+            
+            st.metric(
+                "Configuration Rate",
+                f"{completion_rate:.0f}%"
+            )
+        
+        # Categorize projects
+        projects_with_configs = []
+        projects_without_configs = []
+        
+        for project in projects:
+            configs = db_ops.get_profit_sharing_configs_by_project(project.id)
+            if configs:
+                projects_with_configs.append((project, configs))
+            else:
+                projects_without_configs.append(project)
+        
+        # Section 1: Projects ready for profit sharing configuration
+        if projects_without_configs:
+            st.markdown("### 📋 Projects Ready for Profit Sharing Setup")
+            st.info("💡 These projects don't have profit sharing configured yet.")
+            
+            for project in projects_without_configs:
+                with st.expander(f"🚀 {project.project_name} - Setup Profit Sharing"):
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        client_name = project.po_issuing_company.name if project.po_issuing_company else 'N/A'
+                        st.info(f"""
+                        **Project:** {project.project_name}  
+                        **Client:** {client_name}  
+                        **PO:** {project.po_number or 'N/A'}  
+                        **Status:** {project.status.title()}
+                        """)
+                    
+                    with col2:
+                        st.metric("Project Value", f"৳{project.final_po_value or 0:,.2f}")
+                        if project.final_po_value:
+                            # Get cost data to show potential profit
+                            try:
+                                final_costs = db_ops.get_final_costs_by_project(project.id)
+                                total_cost = sum(f.real_cost for f in final_costs)
+                                if total_cost > 0:
+                                    potential_profit = project.final_po_value - total_cost
+                                    st.metric("Potential Profit", f"৳{potential_profit:,.2f}")
+                                else:
+                                    # Use projected costs
+                                    projections = db_ops.get_initial_projections_by_project(project.id)
+                                    projected_cost = sum(p.amount for p in projections)
+                                    if projected_cost > 0:
+                                        potential_profit = project.final_po_value - projected_cost
+                                        st.metric("Est. Profit", f"৳{potential_profit:,.2f}")
+                            except:
+                                pass
+                    
+                    with col3:
+                        col_a, col_b = st.columns(2)
+                        
+                        with col_a:
+                            if st.button("🎯 Setup Manual", key=f"manual_setup_{project.id}"):
+                                st.session_state.profit_sharing_project_id = project.id
+                                st.session_state.show_profit_sharing_form = True
+                                st.rerun()
+                        
+                        with col_b:
+                            if st.button("⚡ Copy Defaults", key=f"copy_defaults_{project.id}"):
+                                # Copy default percentages from task descriptions
+                                success, message = db_ops.copy_default_profit_sharing(project.id)
+                                if success:
+                                    st.success(f"✅ {message}")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {message}")
+        
+        # Section 2: Projects with configured profit sharing
+        if projects_with_configs:
+            st.markdown("### 🤝 Projects with Profit Sharing Configuration")
+            
+            for project, configs in projects_with_configs:
+                with st.expander(f"💼 {project.project_name} - {len(configs)} Configuration(s)"):
+                    
+                    # Validate percentages
+                    validation = db_ops.validate_profit_sharing_percentages(project.id)
+                    total_percentage = validation['total_percentage']
+                    
+                    # Project summary
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("Project Value", f"৳{project.final_po_value or 0:,.2f}")
+                    
+                    with col2:
+                        st.metric("Configurations", len(configs))
+                    
+                    with col3:
+                        if validation['valid']:
+                            st.metric("Total %", f"{total_percentage:.1f}%", delta="✅ Valid")
+                        else:
+                            st.metric("Total %", f"{total_percentage:.1f}%", delta="❌ Over 100%", delta_color="inverse")
+                    
+                    with col4:
+                        if total_percentage < 100:
+                            unallocated = 100 - total_percentage
+                            st.metric("Unallocated", f"{unallocated:.1f}%")
+                        else:
+                            st.metric("Excess", f"{validation['excess_percentage']:.1f}%")
+                    
+                    # Configuration table
+                    st.markdown("#### Profit Sharing Configuration")
+                    config_data = []
+                    
+                    for config in configs:
+                        config_data.append({
+                            'Task': config.task_description.task_name,
+                            'Assigned To': config.assigned_person_company,
+                            'Percentage': f"{config.profit_percentage:.1f}%",
+                            'Est. Amount': f"৳{(project.final_po_value or 0) * config.profit_percentage / 100:,.2f}" if project.final_po_value else "N/A"
+                        })
+                    
+                    if config_data:
+                        df = pd.DataFrame(config_data)
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+                    
+                    # Action buttons
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        if st.button("✏️ Edit Config", key=f"edit_config_{project.id}"):
+                            st.session_state.edit_profit_sharing_id = project.id
+                            st.rerun()
+                    
+                    with col2:
+                        if st.button("📊 Calculate Profit", key=f"calc_profit_{project.id}"):
+                            st.session_state.show_profit_calculation = project.id
+                            st.rerun()
+                    
+                    with col3:
+                        if st.button("🔄 Reset Config", key=f"reset_config_{project.id}"):
+                            st.session_state.reset_profit_config_id = project.id
+                            st.rerun()
+                    
+                    with col4:
+                        if st.button("📈 Analytics", key=f"analytics_{project.id}"):
+                            st.info("Detailed analytics will be available in the next step.")
+        
+        # Handle reset confirmation
+        if st.session_state.get('reset_profit_config_id'):
+            project_to_reset = next((p for p in projects if p.id == st.session_state.reset_profit_config_id), None)
+            if project_to_reset:
+                st.warning(f"⚠️ Are you sure you want to reset profit sharing configuration for '{project_to_reset.project_name}'?")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ Yes, Reset", key="confirm_reset_config"):
+                        db_ops.delete_profit_sharing_configs_by_project(st.session_state.reset_profit_config_id)
+                        st.success("✅ Profit sharing configuration reset!")
+                        del st.session_state.reset_profit_config_id
+                        st.rerun()
+                with col2:
+                    if st.button("❌ Cancel", key="cancel_reset_config"):
+                        del st.session_state.reset_profit_config_id
+                        st.rerun()
+        
+        # Show task analytics
+        if profit_summary['projects_with_profit_sharing'] > 0:
+            st.markdown("### 📈 Task Usage Analytics")
+            
+            task_analytics = db_ops.get_task_profit_analytics()
+            
+            if task_analytics:
+                analytics_data = []
+                for task in task_analytics:
+                    analytics_data.append({
+                        'Task': task['task_name'],
+                        'Projects Using': task['usage_count'],
+                        'Avg %': f"{task['avg_percentage']:.1f}%",
+                        'Total %': f"{task['total_percentage']:.1f}%"
+                    })
+                
+                df = pd.DataFrame(analytics_data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No task analytics available yet.")
+        
+    except Exception as e:
+        st.error(f"Error loading profit sharing: {str(e)}")
+    finally:
+        db_ops.close()
+
+def show_profit_sharing_form():
+    """Show profit sharing configuration form - UPDATED FOR CONSISTENCY"""
+    st.subheader("🤝 Configure Profit Sharing")
+    
+    # Back button
+    if st.button("⬅️ Back to Profit Sharing"):
+        # Clear ALL session state variables - FIXED
+        session_keys_to_clear = [
+            'show_profit_sharing_form',
+            'profit_sharing_project_id',
+            'profit_sharing_configs'
+        ]
+        
+        for key in session_keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+    
+    # Get project ID
+    project_id = st.session_state.get('profit_sharing_project_id')
+    if not project_id:
+        st.error("No project selected!")
+        return
+    
+    db_ops = DatabaseOperations()
+    try:
+        project = db_ops.get_project_by_id(project_id)
+        tasks = db_ops.get_all_task_descriptions_with_percentage()
+        companies = db_ops.get_all_companies()
+        
+        if not project:
+            st.error("Project not found!")
+            return
+        
+        # Project information
+        st.markdown(f"### 💼 Project: {project.project_name}")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.info(f"**PO Number:** {project.po_number or 'N/A'}")
+        with col2:
+            client_name = project.po_issuing_company.name if project.po_issuing_company else 'N/A'
+            st.info(f"**Client:** {client_name}")
+        with col3:
+            st.info(f"**Project Value:** ৳{project.final_po_value or 0:,.2f}")
+        
+        # Instructions
+        st.markdown("### 📝 Configure Profit Distribution")
+        st.info("💡 Set profit sharing percentages for each task. You can assign different companies to different tasks and adjust percentages as needed.")
+        
+        # Initialize profit sharing configs in session state
+        if 'profit_sharing_configs' not in st.session_state:
+            st.session_state.profit_sharing_configs = []
+            
+            # Start with active tasks that have default percentages
+            for task in tasks:
+                if task.is_active:
+                    default_percentage = getattr(task, 'default_percentage', 0.0)
+                    if default_percentage > 0:
+                        st.session_state.profit_sharing_configs.append({
+                            'task_id': task.id,
+                            'task_name': task.task_name,
+                            'percentage': default_percentage,
+                            'assigned_company': 'To be assigned'
+                        })
+            
+            # If no tasks with defaults, add at least one empty config
+            if not st.session_state.profit_sharing_configs:
+                if tasks:
+                    st.session_state.profit_sharing_configs.append({
+                        'task_id': tasks[0].id,
+                        'task_name': tasks[0].task_name,
+                        'percentage': 0.0,
+                        'assigned_company': 'To be assigned'
+                    })
+        
+        # Display profit sharing configuration form
+        show_profit_sharing_config_form(tasks, companies)
+        
+        # Calculate totals
+        total_percentage = sum(config['percentage'] for config in st.session_state.profit_sharing_configs)
+        estimated_profit = project.final_po_value or 0  # Simplified - will be enhanced with cost calculation
+        total_amount = (estimated_profit * total_percentage) / 100
+        
+        # Show summary
+        st.markdown("### 💰 Configuration Summary")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Percentage", f"{total_percentage:.1f}%")
+        
+        with col2:
+            remaining = 100 - total_percentage
+            delta_color = "normal" if remaining >= 0 else "inverse"
+            st.metric("Remaining", f"{remaining:.1f}%", delta_color=delta_color)
+        
+        with col3:
+            st.metric("Est. Profit", f"৳{estimated_profit:,.2f}")
+        
+        with col4:
+            st.metric("Est. Distribution", f"৳{total_amount:,.2f}")
+        
+        # Validation warnings
+        if total_percentage > 100:
+            st.error(f"⚠️ Total percentage ({total_percentage:.1f}%) exceeds 100%! Please adjust the percentages.")
+        elif total_percentage < 100:
+            st.warning(f"💡 {100 - total_percentage:.1f}% remains unallocated. Consider adding more configurations or adjusting percentages.")
+        else:
+            st.success("✅ Perfect! Total percentage equals 100%.")
+        
+        # Action buttons
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("➕ Add Configuration", use_container_width=True):
+                add_profit_sharing_config(tasks)
+        
+        with col2:
+            if st.button("🔄 Reset All", use_container_width=True):
+                reset_profit_sharing_configs()
+        
+        with col3:
+            if st.button("💾 Save Configuration", use_container_width=True):
+                save_profit_sharing_config(project_id)
+        
+        with col4:
+            if st.button("📊 Preview Distribution", use_container_width=True):
+                show_profit_distribution_preview(project, estimated_profit)
+    
+    except Exception as e:
+        st.error(f"Error loading profit sharing form: {str(e)}")
+    finally:
+        db_ops.close()
+
+def show_profit_sharing_config_form(tasks, companies):
+    """Show profit sharing configuration form items"""
+    
+    # Company options for dropdown
+    company_options = ["To be assigned"] + [c.name for c in companies]
+    
+    for i, config in enumerate(st.session_state.profit_sharing_configs):
+        with st.container():
+            st.markdown(f"#### Configuration {i + 1}")
+            
+            col1, col2, col3, col4, col5 = st.columns([2, 3, 2, 2, 1])
+            
+            with col1:
+                # Task selection
+                task_options = [(t.id, t.task_name) for t in tasks if t.is_active]
+                current_task_index = next((idx for idx, (tid, _) in enumerate(task_options) if tid == config['task_id']), 0)
+                
+                selected_task = st.selectbox(
+                    "Task",
+                    options=task_options,
+                    index=current_task_index,
+                    format_func=lambda x: x[1],
+                    key=f"task_{i}"
+                )
+                st.session_state.profit_sharing_configs[i]['task_id'] = selected_task[0]
+                st.session_state.profit_sharing_configs[i]['task_name'] = selected_task[1]
+            
+            with col2:
+                # Company assignment
+                current_company_index = 0
+                if config['assigned_company'] in company_options:
+                    current_company_index = company_options.index(config['assigned_company'])
+                
+                assigned_company = st.selectbox(
+                    "Assigned Company",
+                    options=company_options,
+                    index=current_company_index,
+                    key=f"company_{i}",
+                    help="Select which company gets this profit share"
+                )
+                st.session_state.profit_sharing_configs[i]['assigned_company'] = assigned_company
+            
+            with col3:
+                # Percentage input
+                percentage = st.number_input(
+                    "Percentage (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=config['percentage'],
+                    step=0.1,
+                    key=f"percentage_{i}",
+                    help="Profit percentage for this configuration"
+                )
+                st.session_state.profit_sharing_configs[i]['percentage'] = percentage
+            
+            with col4:
+                # Show default percentage from task (if available)
+                task_obj = next((t for t in tasks if t.id == config['task_id']), None)
+                if task_obj:
+                    default_pct = getattr(task_obj, 'default_percentage', 0.0)
+                    if default_pct > 0:
+                        st.caption(f"Default: {default_pct}%")
+                        if st.button("↩️", key=f"use_default_{i}", help="Use default percentage"):
+                            st.session_state.profit_sharing_configs[i]['percentage'] = default_pct
+                            st.rerun()
+                    else:
+                        st.caption("No default")
+            
+            with col5:
+                # Remove button
+                if len(st.session_state.profit_sharing_configs) > 1:
+                    if st.button("🗑️", key=f"remove_config_{i}", help="Remove this configuration"):
+                        remove_profit_sharing_config(i)
+                        st.rerun()
+            
+            st.markdown("---")
+
+def add_profit_sharing_config(tasks):
+    """Add a new profit sharing configuration"""
+    if tasks:
+        # Find a task not already used (if possible)
+        used_task_ids = {config['task_id'] for config in st.session_state.profit_sharing_configs}
+        available_tasks = [t for t in tasks if t.is_active and t.id not in used_task_ids]
+        
+        if available_tasks:
+            task = available_tasks[0]
+            default_percentage = getattr(task, 'default_percentage', 0.0)
+        else:
+            # Use first task if all are used
+            task = tasks[0]
+            default_percentage = 0.0
+        
+        st.session_state.profit_sharing_configs.append({
+            'task_id': task.id,
+            'task_name': task.task_name,
+            'percentage': default_percentage,
+            'assigned_company': 'To be assigned'
+        })
+        st.rerun()
+def remove_profit_sharing_config(index):
+    """Remove a profit sharing configuration"""
+    if len(st.session_state.profit_sharing_configs) > 1:
+        st.session_state.profit_sharing_configs.pop(index)
+
+def reset_profit_sharing_configs():
+    """Reset all profit sharing configurations"""
+    if 'profit_sharing_configs' in st.session_state:
+        del st.session_state.profit_sharing_configs
+    st.success("✅ All configurations reset!")
+    st.rerun()
+
+def save_profit_sharing_config(project_id):
+    """Save profit sharing configuration to database - FIXED VERSION"""
+    
+    if 'profit_sharing_configs' not in st.session_state or not st.session_state.profit_sharing_configs:
+        st.error("No configurations to save!")
+        return
+    
+    # Validate configurations
+    total_percentage = sum(config['percentage'] for config in st.session_state.profit_sharing_configs)
+    
+    if total_percentage > 100:
+        st.error(f"❌ Cannot save! Total percentage ({total_percentage:.1f}%) exceeds 100%.")
+        return
+    
+    # Check for unassigned companies
+    unassigned_configs = [config for config in st.session_state.profit_sharing_configs if config['assigned_company'] == 'To be assigned']
+    if unassigned_configs:
+        st.error(f"❌ Please assign companies to all configurations. {len(unassigned_configs)} configuration(s) are unassigned.")
+        return
+    
+    # Check for zero percentages
+    zero_configs = [config for config in st.session_state.profit_sharing_configs if config['percentage'] <= 0]
+    if zero_configs:
+        st.warning(f"⚠️ {len(zero_configs)} configuration(s) have 0% allocation. Is this correct?")
+    
+    db_ops = DatabaseOperations()
+    try:
+        # Delete existing configurations
+        db_ops.delete_profit_sharing_configs_by_project(project_id)
+        
+        # Create new configurations
+        for config in st.session_state.profit_sharing_configs:
+            db_ops.create_profit_sharing_config(
+                project_id=project_id,
+                task_description_id=config['task_id'],
+                profit_percentage=config['percentage'],
+                assigned_person_company=config['assigned_company']
+            )
+        
+        st.success(f"✅ Profit sharing configuration saved! {len(st.session_state.profit_sharing_configs)} configurations created.")
+        st.balloons()
+        
+        # Clear ALL related session state variables - FIXED
+        session_keys_to_clear = [
+            'profit_sharing_configs',
+            'show_profit_sharing_form', 
+            'profit_sharing_project_id',
+            'edit_profit_sharing_id'
+        ]
+        
+        for key in session_keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
+        
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"❌ Error saving configuration: {str(e)}")
+    finally:
+        db_ops.close()
+
+def show_profit_distribution_preview(project, estimated_profit):
+    """Show profit distribution preview"""
+    st.markdown("### 📊 Profit Distribution Preview")
+    
+    # Group by company
+    company_totals = {}
+    for config in st.session_state.profit_sharing_configs:
+        company = config['assigned_company']
+        if company not in company_totals:
+            company_totals[company] = {'percentage': 0, 'amount': 0, 'tasks': []}
+        
+        company_totals[company]['percentage'] += config['percentage']
+        company_totals[company]['amount'] += (estimated_profit * config['percentage']) / 100
+        company_totals[company]['tasks'].append(config['task_name'])
+    
+    # Display company breakdown
+    for company, data in company_totals.items():
+        with st.expander(f"🏢 {company} - {data['percentage']:.1f}% (৳{data['amount']:,.2f})"):
+            st.markdown("**Tasks assigned:**")
+            for task in data['tasks']:
+                st.markdown(f"• {task}")
+    
+    # Summary chart (if plotly available)
+    try:
+        import plotly.graph_objects as go
+        
+        companies = list(company_totals.keys())
+        percentages = [data['percentage'] for data in company_totals.values()]
+        
+        fig = go.Figure(data=[go.Pie(
+            labels=companies,
+            values=percentages,
+            textinfo='label+percent+value',
+            texttemplate='%{label}<br>%{percent}<br>৳%{value:,.0f}',
+            hovertemplate='<b>%{label}</b><br>Percentage: %{percent}<br>Amount: ৳%{value:,.0f}<extra></extra>'
+        )])
+        
+        fig.update_layout(
+            title="Profit Distribution by Company",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+    except Exception as e:
+        st.info("Chart visualization not available")
+        
+def show_edit_profit_sharing_form(project_id):
+    """Show edit profit sharing form - FIXED VERSION"""
+    st.subheader("✏️ Edit Profit Sharing Configuration")
+    
+    # Back button
+    if st.button("⬅️ Back to Profit Sharing"):
+        # Clear ALL session state variables - FIXED
+        session_keys_to_clear = [
+            'edit_profit_sharing_id',
+            'profit_sharing_configs',
+            'profit_sharing_project_id'
+        ]
+        
+        for key in session_keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+    
+    db_ops = DatabaseOperations()
+    try:
+        project = db_ops.get_project_by_id(project_id)
+        existing_configs = db_ops.get_profit_sharing_configs_by_project(project_id)
+        tasks = db_ops.get_all_task_descriptions_with_percentage()
+        companies = db_ops.get_all_companies()
+        
+        if not project:
+            st.error("Project not found!")
+            return
+        
+        if not existing_configs:
+            st.error("No existing configurations found!")
+            return
+        
+        # Project information
+        st.markdown(f"### 💼 Editing: {project.project_name}")
+        
+        st.info("📝 **Note:** This will replace the existing configuration. Make your changes and save.")
+        
+        # Load existing configs into session state (only once)
+        if 'profit_sharing_configs' not in st.session_state:
+            st.session_state.profit_sharing_configs = []
+            for config in existing_configs:
+                st.session_state.profit_sharing_configs.append({
+                    'id': config.id,
+                    'task_id': config.task_description_id,
+                    'task_name': config.task_description.task_name,
+                    'percentage': config.profit_percentage,
+                    'assigned_company': config.assigned_person_company
+                })
+        
+        # Show the same form as creation
+        show_profit_sharing_config_form(tasks, companies)
+        
+        # Calculate totals
+        total_percentage = sum(config['percentage'] for config in st.session_state.profit_sharing_configs)
+        estimated_profit = project.final_po_value or 0
+        
+        # Show summary
+        st.markdown("### 💰 Updated Configuration Summary")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Percentage", f"{total_percentage:.1f}%")
+        
+        with col2:
+            remaining = 100 - total_percentage
+            delta_color = "normal" if remaining >= 0 else "inverse"
+            st.metric("Remaining", f"{remaining:.1f}%", delta_color=delta_color)
+        
+        with col3:
+            total_amount = (estimated_profit * total_percentage) / 100
+            st.metric("Est. Distribution", f"৳{total_amount:,.2f}")
+        
+        # Action buttons
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("➕ Add Configuration", use_container_width=True):
+                add_profit_sharing_config(tasks)
+        
+        with col2:
+            if st.button("🔄 Reset Changes", use_container_width=True):
+                if 'profit_sharing_configs' in st.session_state:
+                    del st.session_state.profit_sharing_configs
+                st.rerun()
+        
+        with col3:
+            if st.button("💾 Update Configuration", use_container_width=True):
+                # Use the project_id parameter directly instead of session state
+                save_profit_sharing_config(project_id)
+        
+        with col4:
+            if st.button("❌ Cancel Edit", use_container_width=True):
+                # Clear ALL session state variables - FIXED
+                session_keys_to_clear = [
+                    'edit_profit_sharing_id',
+                    'profit_sharing_configs',
+                    'profit_sharing_project_id'
+                ]
+                
+                for key in session_keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.rerun()
+    
+    except Exception as e:
+        st.error(f"Error loading edit form: {str(e)}")
+    finally:
+        db_ops.close()
+
+def show_profit_calculation(project_id):
+    """Placeholder for profit calculation - will implement in next step"""
+    st.info("Detailed profit calculation will be implemented in the next step.")
+    
+    if st.button("⬅️ Back to Profit Sharing"):
+        del st.session_state.show_profit_calculation
+        st.rerun()
 
 def show_financial_overview():
     """Show financial overview dashboard with final costs integration"""

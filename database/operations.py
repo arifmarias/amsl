@@ -1455,6 +1455,315 @@ class DatabaseOperations:
                 'total_projects': 0,
                 'projects_without_costs': 0
             }
+    # ------
+
+    def create_profit_sharing_config(self, project_id: int, task_description_id: int, 
+                                    profit_percentage: float, assigned_person_company: str):
+        """Create a new profit sharing configuration"""
+        try:
+            config = ProfitSharingConfig(
+                project_id=project_id,
+                task_description_id=task_description_id,
+                profit_percentage=profit_percentage,
+                assigned_person_company=assigned_person_company
+            )
+            self.db.add(config)
+            self.db.commit()
+            self.db.refresh(config)
+            return config
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def get_profit_sharing_configs_by_project(self, project_id: int):
+        """Get all profit sharing configurations for a project"""
+        return self.db.query(ProfitSharingConfig).filter(
+            ProfitSharingConfig.project_id == project_id
+        ).all()
+
+    def get_profit_sharing_config_by_id(self, config_id: int):
+        """Get profit sharing configuration by ID"""
+        return self.db.query(ProfitSharingConfig).filter(
+            ProfitSharingConfig.id == config_id
+        ).first()
+
+    def update_profit_sharing_config(self, config_id: int, task_description_id: int = None,
+                                    profit_percentage: float = None, 
+                                    assigned_person_company: str = None):
+        """Update a profit sharing configuration"""
+        try:
+            config = self.db.query(ProfitSharingConfig).filter(
+                ProfitSharingConfig.id == config_id
+            ).first()
+            
+            if config:
+                if task_description_id is not None:
+                    config.task_description_id = task_description_id
+                if profit_percentage is not None:
+                    config.profit_percentage = profit_percentage
+                if assigned_person_company is not None:
+                    config.assigned_person_company = assigned_person_company
+                
+                config.updated_at = datetime.now()
+                self.db.commit()
+                return config
+            return None
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def delete_profit_sharing_config(self, config_id: int):
+        """Delete a profit sharing configuration"""
+        try:
+            config = self.db.query(ProfitSharingConfig).filter(
+                ProfitSharingConfig.id == config_id
+            ).first()
+            
+            if config:
+                self.db.delete(config)
+                self.db.commit()
+                return True
+            return False
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def delete_profit_sharing_configs_by_project(self, project_id: int):
+        """Delete all profit sharing configurations for a project"""
+        try:
+            configs = self.db.query(ProfitSharingConfig).filter(
+                ProfitSharingConfig.project_id == project_id
+            ).all()
+            
+            for config in configs:
+                self.db.delete(config)
+            
+            self.db.commit()
+            return True
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def copy_default_profit_sharing(self, project_id: int):
+        """Copy default profit sharing percentages from task descriptions to project"""
+        try:
+            # Get all active task descriptions with default percentages
+            tasks = self.get_all_task_descriptions_with_percentage()
+            
+            if not tasks:
+                return False, "No task descriptions found"
+            
+            # Delete existing profit sharing configs for this project
+            self.delete_profit_sharing_configs_by_project(project_id)
+            
+            # Create profit sharing configs based on task defaults
+            created_count = 0
+            for task in tasks:
+                if task.is_active:
+                    default_percentage = getattr(task, 'default_percentage', 0.0)
+                    
+                    if default_percentage > 0:
+                        # Create config with default company name (can be edited later)
+                        config = ProfitSharingConfig(
+                            project_id=project_id,
+                            task_description_id=task.id,
+                            profit_percentage=default_percentage,
+                            assigned_person_company="To be assigned"  # Default placeholder
+                        )
+                        self.db.add(config)
+                        created_count += 1
+            
+            self.db.commit()
+            return True, f"Created {created_count} profit sharing configurations from task defaults"
+            
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def calculate_project_profit(self, project_id: int):
+        """Calculate comprehensive project profit analysis"""
+        try:
+            # Get project details
+            project = self.get_project_by_id(project_id)
+            if not project:
+                return None
+            
+            # Get financial data
+            initial_projections = self.get_initial_projections_by_project(project_id)
+            final_costs = self.get_final_costs_by_project(project_id)
+            disbursements = self.get_disbursements_by_project(project_id)
+            profit_configs = self.get_profit_sharing_configs_by_project(project_id)
+            
+            # Calculate totals
+            total_revenue = project.final_po_value or 0.0
+            total_projected_cost = sum(p.amount for p in initial_projections)
+            total_actual_cost = sum(f.real_cost for f in final_costs)
+            total_disbursed = sum(d.amount for d in disbursements if d.disbursement_type != 'personal_loan')
+            
+            # Calculate profit (use actual costs if available, otherwise projected)
+            cost_basis = total_actual_cost if total_actual_cost > 0 else total_projected_cost
+            gross_profit = total_revenue - cost_basis
+            
+            # Calculate profit sharing
+            profit_distribution = []
+            total_percentage_allocated = 0
+            
+            for config in profit_configs:
+                profit_amount = (gross_profit * config.profit_percentage) / 100
+                profit_distribution.append({
+                    'task_name': config.task_description.task_name,
+                    'assigned_to': config.assigned_person_company,
+                    'percentage': config.profit_percentage,
+                    'amount': profit_amount
+                })
+                total_percentage_allocated += config.profit_percentage
+            
+            # Calculate unallocated profit
+            unallocated_percentage = 100 - total_percentage_allocated
+            unallocated_amount = (gross_profit * unallocated_percentage) / 100
+            
+            return {
+                'project': project,
+                'financial_summary': {
+                    'total_revenue': total_revenue,
+                    'total_projected_cost': total_projected_cost,
+                    'total_actual_cost': total_actual_cost,
+                    'total_disbursed': total_disbursed,
+                    'cost_basis': cost_basis,
+                    'gross_profit': gross_profit,
+                    'profit_margin_percentage': (gross_profit / total_revenue * 100) if total_revenue > 0 else 0
+                },
+                'profit_distribution': profit_distribution,
+                'allocation_summary': {
+                    'total_percentage_allocated': total_percentage_allocated,
+                    'unallocated_percentage': unallocated_percentage,
+                    'unallocated_amount': unallocated_amount,
+                    'total_distributed': sum(d['amount'] for d in profit_distribution)
+                },
+                'profit_configs': profit_configs
+            }
+            
+        except Exception as e:
+            print(f"Error calculating project profit: {str(e)}")
+            return None
+
+    def get_profit_sharing_summary(self):
+        """Get summary of profit sharing across all projects"""
+        try:
+            from sqlalchemy import func
+            
+            # Get projects with profit sharing configurations
+            projects_with_configs = self.db.query(
+                Project.id,
+                Project.project_name,
+                Project.final_po_value,
+                func.count(ProfitSharingConfig.id).label('config_count'),
+                func.sum(ProfitSharingConfig.profit_percentage).label('total_percentage')
+            ).outerjoin(
+                ProfitSharingConfig, Project.id == ProfitSharingConfig.project_id
+            ).group_by(
+                Project.id, Project.project_name, Project.final_po_value
+            ).all()
+            
+            # Calculate summary statistics
+            total_projects = self.db.query(Project).count()
+            projects_with_profit_sharing = len([p for p in projects_with_configs if p.config_count > 0])
+            
+            return {
+                'total_projects': total_projects,
+                'projects_with_profit_sharing': projects_with_profit_sharing,
+                'projects_without_profit_sharing': total_projects - projects_with_profit_sharing,
+                'projects_with_configs': projects_with_configs
+            }
+            
+        except Exception as e:
+            print(f"Error getting profit sharing summary: {str(e)}")
+            return {
+                'total_projects': 0,
+                'projects_with_profit_sharing': 0,
+                'projects_without_profit_sharing': 0,
+                'projects_with_configs': []
+            }
+
+    def get_task_profit_analytics(self):
+        """Get analytics on profit distribution by task types"""
+        try:
+            from sqlalchemy import func
+            
+            # Get profit distribution by task
+            task_analytics = self.db.query(
+                TaskDescription.task_name,
+                func.count(ProfitSharingConfig.id).label('usage_count'),
+                func.avg(ProfitSharingConfig.profit_percentage).label('avg_percentage'),
+                func.sum(ProfitSharingConfig.profit_percentage).label('total_percentage')
+            ).join(
+                ProfitSharingConfig, TaskDescription.id == ProfitSharingConfig.task_description_id
+            ).group_by(
+                TaskDescription.id, TaskDescription.task_name
+            ).all()
+            
+            return [{
+                'task_name': task.task_name,
+                'usage_count': task.usage_count,
+                'avg_percentage': round(task.avg_percentage or 0, 1),
+                'total_percentage': round(task.total_percentage or 0, 1)
+            } for task in task_analytics]
+            
+        except Exception as e:
+            print(f"Error getting task profit analytics: {str(e)}")
+            return []
+
+    def validate_profit_sharing_percentages(self, project_id: int):
+        """Validate that profit sharing percentages don't exceed 100%"""
+        try:
+            configs = self.get_profit_sharing_configs_by_project(project_id)
+            total_percentage = sum(config.profit_percentage for config in configs)
+            
+            return {
+                'valid': total_percentage <= 100,
+                'total_percentage': total_percentage,
+                'excess_percentage': max(0, total_percentage - 100),
+                'config_count': len(configs)
+            }
+            
+        except Exception as e:
+            print(f"Error validating profit sharing percentages: {str(e)}")
+            return {
+                'valid': False,
+                'total_percentage': 0,
+                'excess_percentage': 0,
+                'config_count': 0
+            }
+
+    def get_company_profit_summary(self, company_name: str = None):
+        """Get profit summary for a specific company or all companies"""
+        try:
+            from sqlalchemy import func
+            
+            query = self.db.query(
+                ProfitSharingConfig.assigned_person_company,
+                func.count(ProfitSharingConfig.id).label('project_count'),
+                func.avg(ProfitSharingConfig.profit_percentage).label('avg_percentage'),
+                func.sum(ProfitSharingConfig.profit_percentage).label('total_percentage')
+            )
+            
+            if company_name:
+                query = query.filter(ProfitSharingConfig.assigned_person_company == company_name)
+            
+            company_summary = query.group_by(
+                ProfitSharingConfig.assigned_person_company
+            ).all()
+            
+            return [{
+                'company_name': summary.assigned_person_company,
+                'project_count': summary.project_count,
+                'avg_percentage': round(summary.avg_percentage or 0, 1),
+                'total_percentage': round(summary.total_percentage or 0, 1)
+            } for summary in company_summary]
+            
+        except Exception as e:
+            print(f"Error getting company profit summary: {str(e)}")
+            return []
 #----
 
 # Test function for disbursement operations

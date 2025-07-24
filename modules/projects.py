@@ -5,7 +5,7 @@ from database.operations import DatabaseOperations
 from modules.auth import AuthenticationManager
 
 def show_projects():
-    """Main projects page"""
+    """Main projects page - UPDATED WITH EDIT SUPPORT"""
     
     st.title("📋 Project Management")
     
@@ -13,6 +13,11 @@ def show_projects():
     if st.session_state.get('action') == 'new_project':
         st.session_state.action = None  # Clear the action
         show_new_project_form()
+        return
+    
+    # Check for edit mode
+    if st.session_state.get('edit_project_id'):
+        show_edit_project_form(st.session_state.edit_project_id)
         return
     
     # Tab navigation
@@ -109,7 +114,7 @@ def show_all_projects():
         db_ops.close()
 
 def show_new_project_form():
-    """Display new project creation form"""
+    """Display new project creation form - ENHANCED WITH ADVANCE FIELD"""
     st.subheader("➕ Create New Project")
     
     # Check if form was just submitted
@@ -205,10 +210,45 @@ def show_new_project_form():
                     "AIT Rate (%)",
                     min_value=0.0,
                     max_value=100.0,
-                    value=3.0,
+                    value=2.0,  # FIXED: Changed from 3.0 to 2.0
                     step=0.1,
                     help="Advance Income Tax percentage"
                 )
+            
+            # NEW: Project Advance Section
+            st.markdown("### 💵 Project Advance Information")
+            st.info("💡 Set advance amount if client provides advance payment with PO")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                project_advance_amount = st.number_input(
+                    "Advance Amount (৳)",
+                    min_value=0.0,
+                    value=0.0,
+                    step=1000.0,
+                    help="Advance amount received from client"
+                )
+            
+            with col2:
+                # Auto-calculate advance percentage
+                if total_po_value > 0 and project_advance_amount > 0:
+                    calculated_percentage = (project_advance_amount / total_po_value) * 100
+                    advance_percentage = st.number_input(
+                        "Advance Percentage (%)",
+                        value=calculated_percentage,
+                        disabled=True,
+                        help="Automatically calculated based on PO value"
+                    )
+                else:
+                    advance_percentage = st.number_input(
+                        "Advance Percentage (%)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=0.0,
+                        step=0.1,
+                        help="Advance percentage manually"
+                    )
             
             # File upload
             st.markdown("### 📎 Documents")
@@ -229,6 +269,11 @@ def show_new_project_form():
                 
                 if not po_issuing_company:
                     st.error("Client company is required!")
+                    return
+                
+                # Validate advance amount
+                if project_advance_amount > total_po_value:
+                    st.error("Advance amount cannot exceed total PO value!")
                     return
                 
                 try:
@@ -254,13 +299,14 @@ def show_new_project_form():
                     project.ait_rate = ait_rate
                     project.ait_amount = ait_amount
                     project.final_po_value = final_po_value
+                    # NEW: Add advance information
+                    project.project_advance_amount = project_advance_amount
+                    project.project_advance_percentage = advance_percentage
                     
                     db_ops.db.commit()
                     
                     # Handle file upload (basic implementation)
                     if uploaded_file:
-                        # In a full implementation, save file to uploads folder
-                        # For now, just acknowledge the upload
                         st.success(f"✅ PO document '{uploaded_file.name}' uploaded successfully!")
                     
                     st.success(f"✅ Project '{project_name}' created successfully!")
@@ -289,6 +335,13 @@ def show_new_project_form():
                         **Final Value:** ৳{final_po_value:,.2f}
                         """)
                     
+                    # Show advance info if provided
+                    if project_advance_amount > 0:
+                        st.success(f"""
+                        **Advance Amount:** ৳{project_advance_amount:,.2f} ({advance_percentage:.1f}% of PO value)  
+                        **Remaining:** ৳{final_po_value - project_advance_amount:,.2f}
+                        """)
+                    
                 except Exception as e:
                     st.error(f"Error creating project: {str(e)}")
         
@@ -296,6 +349,242 @@ def show_new_project_form():
         st.error(f"Error loading form data: {str(e)}")
     finally:
         db_ops.close()
+
+def show_edit_project_form(project_id):
+    """Show edit project form - NEW FUNCTION"""
+    st.subheader("✏️ Edit Project")
+    
+    # Back button
+    if st.button("⬅️ Back to Projects"):
+        if 'edit_project_id' in st.session_state:
+            del st.session_state.edit_project_id
+        st.rerun()
+    
+    db_ops = DatabaseOperations()
+    try:
+        project = db_ops.get_project_by_id(project_id)
+        
+        if not project:
+            st.error("Project not found!")
+            return
+        
+        # Get companies for dropdowns
+        companies = db_ops.get_all_companies()
+        customers = [c for c in companies if c.company_type == 'customer']
+        suppliers = [c for c in companies if c.company_type == 'supplier']
+        
+        with st.form("edit_project_form"):
+            st.markdown(f"### Editing: {project.project_name}")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                project_name = st.text_input("Project Name *", value=project.project_name)
+                po_number = st.text_input("PO Number", value=project.po_number or "")
+                start_date = st.date_input("Start Date *", value=project.start_date or date.today())
+            
+            with col2:
+                # Client company selection
+                current_client_id = project.po_issuing_company_id
+                client_options = [(c.id, c.name) for c in customers]
+                client_index = next((i for i, (cid, _) in enumerate(client_options) if cid == current_client_id), 0)
+                
+                po_issuing_company = st.selectbox(
+                    "Client Company *",
+                    options=client_options,
+                    index=client_index,
+                    format_func=lambda x: x[1]
+                )
+                
+                # Supplier company selection
+                current_supplier_id = project.supplier_company_id
+                supplier_options = [(None, "No Supplier")] + [(c.id, c.name) for c in suppliers]
+                supplier_index = 0
+                if current_supplier_id:
+                    supplier_index = next((i for i, (sid, _) in enumerate(supplier_options) if sid == current_supplier_id), 0)
+                
+                supplier_company = st.selectbox(
+                    "Supplier Company",
+                    options=supplier_options,
+                    index=supplier_index,
+                    format_func=lambda x: x[1] if x[1] else "No Supplier"
+                )
+                
+                tentative_end_date = st.date_input(
+                    "Tentative End Date", 
+                    value=project.tentative_end_date
+                )
+            
+            # Financial information
+            st.markdown("### 💰 Financial Information")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                total_po_value = st.number_input(
+                    "Total PO Value (৳)",
+                    min_value=0.0,
+                    value=float(project.total_po_value or 0),
+                    step=1000.0
+                )
+            
+            with col2:
+                vat_rate = st.number_input(
+                    "VAT Rate (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=float(project.vat_rate or 15.0),
+                    step=0.1
+                )
+            
+            with col3:
+                ait_rate = st.number_input(
+                    "AIT Rate (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=float(project.ait_rate or 2.0),  # FIXED: Default to 2.0
+                    step=0.1
+                )
+            
+            # Project advance information
+            st.markdown("### 💵 Project Advance Information")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                current_advance = float(project.project_advance_amount or 0)
+                project_advance_amount = st.number_input(
+                    "Advance Amount (৳)",
+                    min_value=0.0,
+                    value=current_advance,
+                    step=1000.0
+                )
+            
+            with col2:
+                current_advance_pct = float(project.project_advance_percentage or 0)
+                if total_po_value > 0 and project_advance_amount > 0:
+                    calculated_percentage = (project_advance_amount / total_po_value) * 100
+                    advance_percentage = st.number_input(
+                        "Advance Percentage (%)",
+                        value=calculated_percentage,
+                        disabled=True
+                    )
+                else:
+                    advance_percentage = st.number_input(
+                        "Advance Percentage (%)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=current_advance_pct,
+                        step=0.1
+                    )
+            
+            # Project status
+            st.markdown("### 📊 Project Status")
+            status_options = ["new", "active", "invoice_submitted", "completed", "cancelled", "on_hold"]
+            current_status_index = status_options.index(project.status) if project.status in status_options else 0
+            
+            project_status = st.selectbox(
+                "Project Status",
+                options=status_options,
+                index=current_status_index,
+                format_func=lambda x: x.replace('_', ' ').title()
+            )
+            
+            # Submit button
+            submitted = st.form_submit_button("💾 Update Project", use_container_width=True)
+            
+            if submitted:
+                if not project_name:
+                    st.error("Project name is required!")
+                    return
+                
+                if project_advance_amount > total_po_value:
+                    st.error("Advance amount cannot exceed total PO value!")
+                    return
+                
+                try:
+                    # Calculate financial values
+                    vat_amount = total_po_value * (vat_rate / 100)
+                    ait_amount = total_po_value * (ait_rate / 100)
+                    final_po_value = total_po_value + vat_amount - ait_amount
+                    
+                    # Update project
+                    project.project_name = project_name
+                    project.po_number = po_number
+                    project.po_issuing_company_id = po_issuing_company[0]
+                    project.supplier_company_id = supplier_company[0] if supplier_company[0] else None
+                    project.start_date = start_date
+                    project.tentative_end_date = tentative_end_date
+                    project.status = project_status
+                    
+                    # Update financial information
+                    project.total_po_value = total_po_value
+                    project.vat_rate = vat_rate
+                    project.vat_amount = vat_amount
+                    project.ait_rate = ait_rate
+                    project.ait_amount = ait_amount
+                    project.final_po_value = final_po_value
+                    project.project_advance_amount = project_advance_amount
+                    project.project_advance_percentage = advance_percentage
+                    project.updated_at = datetime.now()
+                    
+                    db_ops.db.commit()
+                    
+                    st.success(f"✅ Project '{project_name}' updated successfully!")
+                    st.balloons()
+                    
+                    # Clear edit state and return to projects
+                    del st.session_state.edit_project_id
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error updating project: {str(e)}")
+    
+    except Exception as e:
+        st.error(f"Error loading project: {str(e)}")
+    finally:
+        db_ops.close()
+
+# Add delete project functionality
+def delete_project(project_id):
+    """Delete a project with validation - NEW FUNCTION"""
+    db_ops = DatabaseOperations()
+    try:
+        # Check if project has dependencies
+        project = db_ops.get_project_by_id(project_id)
+        if not project:
+            st.error("Project not found!")
+            return False
+        
+        # Check for initial projections
+        projections = db_ops.get_initial_projections_by_project(project_id)
+        if projections:
+            st.error(f"Cannot delete project! It has {len(projections)} initial projection(s). Delete projections first.")
+            return False
+        
+        # Check for final costs
+        final_costs = db_ops.get_final_costs_by_project(project_id)
+        if final_costs:
+            st.error(f"Cannot delete project! It has {len(final_costs)} final cost record(s). Delete final costs first.")
+            return False
+        
+        # Check for disbursements
+        disbursements = db_ops.get_disbursements_by_project(project_id)
+        if disbursements:
+            st.error(f"Cannot delete project! It has {len(disbursements)} disbursement(s). Delete disbursements first.")
+            return False
+        
+        # Delete the project
+        db_ops.db.delete(project)
+        db_ops.db.commit()
+        
+        st.success(f"✅ Project '{project.project_name}' deleted successfully!")
+        return True
+        
+    except Exception as e:
+        st.error(f"Error deleting project: {str(e)}")
+        return False
+    finally:
+        db_ops.close()
+
 
 def show_project_search():
     """Project search and filtering interface"""
