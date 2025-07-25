@@ -940,35 +940,34 @@ def generate_invoice_pdf(project, invoice_data=None):
         st.info("💡 Invoice PDF generation failed. Please check the error details above.")
 
 def show_full_financial_interface():
-    """Full financial interface for admin and regular users - UPDATED WITH PROFIT SHARING"""
+    """Full financial interface for admin and regular users - UPDATED TAB ORDER"""
     
-    # Tab navigation - UPDATED with Profit Sharing tab
-    # Tab navigation - ENHANCED WITH INVOICE MANAGEMENT
+    # Tab navigation - REORDERED TABS
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Financial Overview", 
-        "📋 Initial Projections", 
-        "💰 Final Costs",
-        "📄 Invoice Management",  # NEW TAB
-        "💸 Disbursements",
-        "📈 Financial Reports"
+        "💸 Disbursements",        # MOVED TO 2ND POSITION
+        "📋 Initial Projections",  # MOVED TO 3RD POSITION
+        "💰 Final Costs",         # MOVED TO 4TH POSITION
+        "📄 Invoice Management",   # MOVED TO 5TH POSITION
+        "📈 Financial Reports"     # MOVED TO 6TH POSITION
     ])
     
     with tab1:
         show_financial_overview()
     
-    with tab2:
-        show_initial_projections()
-    
-    with tab3:
-        show_final_costs()
-    
-    with tab4:  # NEW TAB
-        show_invoice_management()
-    
-    with tab5:  # Updated number
+    with tab2:  # DISBURSEMENTS NOW 2ND
         show_disbursement_management()
     
-    with tab6:  # Updated number
+    with tab3:  # INITIAL PROJECTIONS NOW 3RD
+        show_initial_projections()
+    
+    with tab4:  # FINAL COSTS NOW 4TH
+        show_final_costs()
+    
+    with tab5:  # INVOICE MANAGEMENT NOW 5TH
+        show_invoice_management()
+    
+    with tab6:  # FINANCIAL REPORTS NOW 6TH
         show_financial_reports()
 
 # Finance user interface remains the same (no profit sharing access for finance users)
@@ -3423,7 +3422,7 @@ def show_disbursement_management():
     show_disbursement_overview()
 
 def show_disbursement_overview():
-    """Show disbursement overview and management"""
+    """Show disbursement overview and management - UPDATED VERSION"""
     
     # Get disbursement statistics
     disbursement_stats = get_disbursement_statistics()
@@ -3459,24 +3458,145 @@ def show_disbursement_overview():
             delta=f"৳{disbursement_stats['personal_loan_amount']:,.0f}"
         )
     
-    # Action buttons
-    col1, col2 = st.columns([1, 3])
+    # Action button - REMOVED FILTER FROM HERE
+    if st.button("➕ New Disbursement", use_container_width=True):
+        st.session_state.show_disbursement_form = True
+        st.rerun()
+    
+    # Recent Disbursements section with filters - MOVED FILTER HERE
+    st.markdown("### 📋 Recent Disbursements")
+    
+    # Filter section - NOW INSIDE RECENT DISBURSEMENTS
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("➕ New Disbursement", use_container_width=True):
-            st.session_state.show_disbursement_form = True
-            st.rerun()
-    
-    with col2:
-        # Filter options
+        # Type filter - MOVED HERE
         filter_type = st.selectbox(
             "Filter by Type:", 
             ["All", "advance", "project_cost", "personal_loan"],
             format_func=lambda x: "All Types" if x == "All" else x.replace("_", " ").title()
         )
     
-    # Disbursements table
-    show_disbursements_table(filter_type)
+    with col2:
+        # Project filter
+        db_ops = DatabaseOperations()
+        try:
+            projects = db_ops.get_projects_for_disbursement()
+            project_options = [("All", "All Projects")] + [(p.id, p.project_name) for p in projects]
+            selected_project = st.selectbox(
+                "Filter by Project:",
+                options=project_options,
+                format_func=lambda x: x[1]
+            )
+            project_filter = selected_project[0] if selected_project[0] != "All" else None
+        except:
+            project_filter = None
+        finally:
+            db_ops.close()
+    
+    with col3:
+        # Date range filter
+        date_filter = st.selectbox(
+            "Filter by Date:",
+            ["All Time", "Last 7 Days", "Last 30 Days", "Last 90 Days"]
+        )
+    
+    with col4:
+        # Amount range filter
+        amount_filter = st.selectbox(
+            "Filter by Amount:",
+            ["All Amounts", "< ৳10,000", "৳10,000 - ৳50,000", "> ৳50,000"]
+        )
+    
+    # Disbursements table with all filters
+    show_disbursements_table_with_filters(filter_type, project_filter, date_filter, amount_filter)
+
+def show_disbursements_table_with_filters(filter_type="All", project_filter=None, date_filter="All Time", amount_filter="All Amounts"):
+    """Show disbursements table with all applied filters"""
+    
+    db_ops = DatabaseOperations()
+    try:
+        disbursements = db_ops.get_disbursements_with_receipts_filtered(
+            type_filter=filter_type,
+            project_filter=project_filter,
+            date_filter=date_filter,
+            amount_filter=amount_filter
+        )
+        
+        if not disbursements:
+            st.info("📭 No disbursements found matching the filters.")
+            return
+        
+        # Prepare table data
+        table_data = []
+        for disb, receipt in disbursements:
+            if disb.disbursement_type == "personal_loan":
+                project_name = "Personal Loan"
+            else:
+                project_name = disb.project.project_name if disb.project else "Unknown Project"
+            
+            table_data.append({
+                'ID': f"#{disb.id}",
+                'Type': disb.disbursement_type.replace('_', ' ').title(),
+                'Project': project_name,
+                'Amount': f"৳{disb.amount:,.2f}",
+                'Date': disb.disbursement_date.strftime('%Y-%m-%d'),
+                'Receipt': receipt.receipt_number if receipt else 'N/A',
+                'Status': '✅ Complete' if receipt else '⏳ Pending'
+            })
+        
+        df = pd.DataFrame(table_data)
+        
+        # Display table
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Disbursement Actions section
+        if disbursements:
+            st.markdown("### 📝 Disbursement Actions")
+            
+            # Better layout with selectbox taking more space and buttons grouped together
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                selected_disbursement = st.selectbox(
+                    "Select Disbursement:",
+                    options=[disb.id for disb, receipt in disbursements],
+                    format_func=lambda x: f"#{x} - ৳{next(disb.amount for disb, receipt in disbursements if disb.id == x):,.2f}",
+                    help="Choose a disbursement to perform actions on"
+                )
+            
+            with col2:
+                # Show selected disbursement info
+                selected_disb_data = next((disb for disb, receipt in disbursements if disb.id == selected_disbursement), None)
+                if selected_disb_data:
+                    st.info(f"**Type:** {selected_disb_data.disbursement_type.replace('_', ' ').title()}")
+            
+            # Action buttons in a more compact layout
+            st.markdown("**Actions:**")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("👀 View Details", key="view_details_table", use_container_width=True):
+                    show_disbursement_details(selected_disbursement)
+            
+            with col2:
+                if st.button("📄 Download Receipt", key="download_receipt_table", use_container_width=True):
+                    # Find the receipt for selected disbursement
+                    selected_receipt = next((receipt for disb, receipt in disbursements if disb.id == selected_disbursement and receipt), None)
+                    if selected_receipt:
+                        generate_receipt_pdf(selected_receipt)
+                    else:
+                        st.error("No receipt found for this disbursement!")
+            
+            with col3:
+                if st.button("✏️ Edit Disbursement", key="edit_disbursement_table", use_container_width=True):
+                    st.session_state.edit_disbursement_id = selected_disbursement
+                    st.rerun()
+    
+    except Exception as e:
+        st.error(f"Error loading disbursements: {str(e)}")
+    finally:
+        db_ops.close()
 
 # Step 1: Replace the show_disbursement_form() function in modules/financial.py
 
@@ -4076,116 +4196,6 @@ def show_disbursement_summary(disbursement, money_receipt):
         if st.button("🖨️ Print Receipt", key=f"print_summary_{money_receipt.id}"):
             st.info("Print functionality will be implemented in later phases.")
 
-def show_disbursements_table(filter_type="All"):
-    """Show disbursements table with enhanced filtering - FIXED VERSION"""
-    st.markdown("### 📋 Recent Disbursements")
-    
-    # Enhanced filtering options
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        # Project filter
-        db_ops = DatabaseOperations()
-        try:
-            projects = db_ops.get_projects_for_disbursement()
-            project_options = [("All", "All Projects")] + [(p.id, p.project_name) for p in projects]
-            selected_project = st.selectbox(
-                "Filter by Project:",
-                options=project_options,
-                format_func=lambda x: x[1]
-            )
-            project_filter = selected_project[0] if selected_project[0] != "All" else None
-        except:
-            project_filter = None
-        finally:
-            db_ops.close()
-    
-    with col2:
-        # Date range filter
-        date_filter = st.selectbox(
-            "Filter by Date:",
-            ["All Time", "Last 7 Days", "Last 30 Days", "Last 90 Days"]
-        )
-    
-    with col3:
-        # Amount range filter
-        amount_filter = st.selectbox(
-            "Filter by Amount:",
-            ["All Amounts", "< ৳10,000", "৳10,000 - ৳50,000", "> ৳50,000"]
-        )
-    
-    db_ops = DatabaseOperations()
-    try:
-        disbursements = db_ops.get_disbursements_with_receipts_filtered(
-            type_filter=filter_type,
-            project_filter=project_filter,
-            date_filter=date_filter,
-            amount_filter=amount_filter
-        )
-        
-        if not disbursements:
-            st.info("📭 No disbursements found matching the filters.")
-            return
-        
-        # Prepare table data
-        table_data = []
-        for disb, receipt in disbursements:
-            if disb.disbursement_type == "personal_loan":
-                project_name = "Personal Loan"
-            else:
-                project_name = disb.project.project_name if disb.project else "Unknown Project"
-            
-            table_data.append({
-                'ID': f"#{disb.id}",
-                'Type': disb.disbursement_type.replace('_', ' ').title(),
-                'Project': project_name,
-                'Amount': f"৳{disb.amount:,.2f}",
-                'Date': disb.disbursement_date.strftime('%Y-%m-%d'),
-                'Receipt': receipt.receipt_number if receipt else 'N/A',
-                'Status': '✅ Complete' if receipt else '⏳ Pending'
-            })
-        
-        df = pd.DataFrame(table_data)
-        
-        # Display table
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        
-        # Action section
-        if disbursements:
-            st.markdown("### 📝 Disbursement Actions")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                selected_disbursement = st.selectbox(
-                    "Select Disbursement:",
-                    options=[disb.id for disb, receipt in disbursements],
-                    format_func=lambda x: f"#{x} - ৳{next(disb.amount for disb, receipt in disbursements if disb.id == x):,.2f}"
-                )
-            
-            with col2:
-                if st.button("👀 View Details", key="view_details_table"):
-                    show_disbursement_details(selected_disbursement)
-            
-            with col3:
-                if st.button("📄 Download Receipt", key="download_receipt_table"):
-                    # Find the receipt for selected disbursement
-                    selected_receipt = next((receipt for disb, receipt in disbursements if disb.id == selected_disbursement and receipt), None)
-                    if selected_receipt:
-                        generate_receipt_pdf(selected_receipt)
-                    else:
-                        st.error("No receipt found for this disbursement!")
-            
-            with col4:
-                if st.button("✏️ Edit Disbursement", key="edit_disbursement_table"):
-                    st.session_state.edit_disbursement_id = selected_disbursement
-                    st.rerun()
-    
-    except Exception as e:
-        st.error(f"Error loading disbursements: {str(e)}")
-    finally:
-        db_ops.close()
-
 def show_disbursement_details(disbursement_id):
     """Show detailed view of a disbursement"""
     st.markdown(f"### 📄 Disbursement Details - #{disbursement_id}")
@@ -4226,14 +4236,6 @@ def show_disbursement_details(disbursement_id):
                 **Receipt Date:** {money_receipt.receipt_date.strftime('%Y-%m-%d')}
                 """)
                 
-                # Receipt actions
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    if st.button("📄 Download PDF", key=f"download_{disbursement_id}"):
-                        generate_receipt_pdf(money_receipt)
-                with col_b:
-                    if st.button("🖨️ Print", key=f"print_{disbursement_id}"):
-                        st.info("Print functionality coming soon.")
             else:
                 st.warning("⚠️ No money receipt found for this disbursement.")
     
@@ -5479,14 +5481,222 @@ def get_company_options_for_disbursement():
     finally:
         db_ops.close()
         
+
 def show_edit_disbursement_form(disbursement_id):
-    """Show edit disbursement form"""
+    """Show edit disbursement form with full functionality"""
     st.subheader("✏️ Edit Disbursement")
-    st.info("Edit disbursement functionality will be implemented in next phase.")
     
+    # Back button
     if st.button("⬅️ Back to Disbursements"):
         del st.session_state.edit_disbursement_id
         st.rerun()
+    
+    db_ops = DatabaseOperations()
+    try:
+        # Get disbursement details
+        disbursement = db_ops.get_disbursement_by_id(disbursement_id)
+        money_receipt = db_ops.get_money_receipt_by_disbursement(disbursement_id)
+        
+        if not disbursement:
+            st.error("Disbursement not found!")
+            return
+        
+        # Show current disbursement info
+        st.markdown(f"### 💸 Editing Disbursement #{disbursement.id}")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.info(f"**Type:** {disbursement.disbursement_type.replace('_', ' ').title()}")
+        with col2:
+            st.info(f"**Current Amount:** ৳{disbursement.amount:,.2f}")
+        with col3:
+            if disbursement.project:
+                st.info(f"**Project:** {disbursement.project.project_name}")
+            else:
+                st.info("**Type:** Personal Loan")
+        
+        # Edit form
+        with st.form("edit_disbursement_form"):
+            st.markdown("### 📝 Update Disbursement Details")
+            
+            # Amount and date/time
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_amount = st.number_input(
+                    "Amount (৳) *",
+                    min_value=1.0,
+                    value=float(disbursement.amount),
+                    step=100.0,
+                    help="Update disbursement amount"
+                )
+            
+            with col2:
+                # Extract date and time from disbursement_date
+                current_date = disbursement.disbursement_date.date()
+                current_time = disbursement.disbursement_date.time()
+                
+                new_disbursement_date = st.date_input(
+                    "Disbursement Date *",
+                    value=current_date,
+                    help="Update disbursement date"
+                )
+                
+                new_disbursement_time = st.time_input(
+                    "Disbursement Time *",
+                    value=current_time,
+                    help="Update disbursement time"
+                )
+            
+            # Description
+            new_description = st.text_area(
+                "Description/Purpose *",
+                value=disbursement.description or "",
+                help="Update disbursement description"
+            )
+            
+            # Money Receipt Information (if exists)
+            if money_receipt:
+                st.markdown("### 💼 Money Receipt Information")
+                st.info("💡 Updating disbursement will also update the associated money receipt.")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    new_received_from = st.text_input(
+                        "Received From *",
+                        value=money_receipt.received_from,
+                        help="Update who provided the money"
+                    )
+                
+                with col2:
+                    new_received_by = st.text_input(
+                        "Received By *",
+                        value=money_receipt.received_by,
+                        help="Update who received the money"
+                    )
+            else:
+                st.warning("⚠️ No money receipt found for this disbursement.")
+                new_received_from = None
+                new_received_by = None
+            
+            # Validation warnings
+            if disbursement.disbursement_type == "advance" and disbursement.project:
+                st.markdown("### ⚠️ Advance Validation")
+                
+                # Check advance validation for new amount
+                if new_amount != disbursement.amount:
+                    try:
+                        # Get current advance summary
+                        advance_summary = db_ops.get_project_advance_summary(disbursement.project.id)
+                        # Calculate what the total would be with the new amount
+                        other_advance_disbursed = advance_summary['total_disbursed'] - disbursement.amount
+                        new_total_advance = other_advance_disbursed + new_amount
+                        
+                        project_advance = disbursement.project.project_advance_amount or 0
+                        
+                        if project_advance > 0:
+                            remaining_after_edit = project_advance - new_total_advance
+                            if remaining_after_edit < 0:
+                                st.error(f"⚠️ New amount will exceed advance limit by ৳{abs(remaining_after_edit):,.2f}")
+                                st.error(f"Available advance: ৳{project_advance:,.2f}, Other disbursed: ৳{other_advance_disbursed:,.2f}")
+                            else:
+                                st.success(f"✅ New amount is valid. Remaining advance: ৳{remaining_after_edit:,.2f}")
+                    except:
+                        st.info("Could not validate advance amount.")
+            
+            # Submit button
+            submitted = st.form_submit_button("💾 Update Disbursement", use_container_width=True)
+            
+            if submitted:
+                # Validation
+                if not new_amount or new_amount <= 0:
+                    st.error("❌ Please enter a valid amount!")
+                    return
+                
+                if not new_description.strip():
+                    st.error("❌ Please provide a description!")
+                    return
+                
+                if money_receipt and (not new_received_from or not new_received_by):
+                    st.error("❌ Please provide both 'Received From' and 'Received By' information!")
+                    return
+                
+                # Additional validation for advance disbursements
+                if disbursement.disbursement_type == "advance" and disbursement.project:
+                    try:
+                        advance_summary = db_ops.get_project_advance_summary(disbursement.project.id)
+                        other_advance_disbursed = advance_summary['total_disbursed'] - disbursement.amount
+                        new_total_advance = other_advance_disbursed + new_amount
+                        project_advance = disbursement.project.project_advance_amount or 0
+                        
+                        if new_total_advance > project_advance:
+                            st.error(f"❌ Cannot update! New amount exceeds advance limit.")
+                            return
+                    except Exception as e:
+                        st.warning(f"Could not validate advance: {str(e)}")
+                
+                try:
+                    # Combine date and time
+                    new_disbursement_datetime = datetime.combine(new_disbursement_date, new_disbursement_time)
+                    
+                    # Update disbursement
+                    updated_disbursement = db_ops.update_disbursement(
+                        disbursement_id=disbursement.id,
+                        amount=new_amount,
+                        description=new_description,
+                        disbursement_date=new_disbursement_datetime
+                    )
+                    
+                    if updated_disbursement:
+                        # Update money receipt if it exists
+                        if money_receipt and new_received_from and new_received_by:
+                            money_receipt.received_from = new_received_from
+                            money_receipt.received_by = new_received_by
+                            money_receipt.amount = new_amount
+                            money_receipt.receipt_date = new_disbursement_date
+                            db_ops.db.commit()
+                        
+                        st.success("✅ Disbursement updated successfully!")
+                        st.balloons()
+                        
+                        # Show updated summary
+                        st.markdown("### 📊 Updated Summary")
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.info(f"""
+                            **Updated Disbursement:**  
+                            Amount: ৳{new_amount:,.2f}  
+                            Date: {new_disbursement_datetime.strftime('%Y-%m-%d %H:%M')}  
+                            Description: {new_description}
+                            """)
+                        
+                        with col2:
+                            if money_receipt:
+                                st.info(f"""
+                                **Updated Receipt:**  
+                                From: {new_received_from}  
+                                To: {new_received_by}  
+                                Amount: ৳{new_amount:,.2f}
+                                """)
+                        
+                        # Clear edit state after short delay
+                        import time
+                        time.sleep(2)
+                        del st.session_state.edit_disbursement_id
+                        st.rerun()
+                        
+                    else:
+                        st.error("❌ Failed to update disbursement!")
+                        
+                except Exception as e:
+                    st.error(f"❌ Error updating disbursement: {str(e)}")
+    
+    except Exception as e:
+        st.error(f"Error loading disbursement: {str(e)}")
+    finally:
+        db_ops.close()
 
 def show_final_costs_finance_view():
     """Placeholder for final costs (finance view)"""
