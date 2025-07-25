@@ -3478,55 +3478,65 @@ def show_disbursement_overview():
     # Disbursements table
     show_disbursements_table(filter_type)
 
+# Step 1: Replace the show_disbursement_form() function in modules/financial.py
+
 def show_disbursement_form():
-    """Simplified disbursement creation form with dropdown company selection"""
+    """Fixed disbursement creation form with dynamic project selection"""
     st.subheader("💸 Create New Disbursement")
     
     # Back button
     if st.button("⬅️ Back to Disbursements"):
         del st.session_state.show_disbursement_form
+        # Clear any selection state
+        if 'selected_disbursement_project_id' in st.session_state:
+            del st.session_state.selected_disbursement_project_id
         st.rerun()
     
+    # Step 1: Disbursement Type Selection (outside form)
+    st.markdown("### 📋 Step 1: Select Disbursement Type")
+    
+    disbursement_type = st.radio(
+        "Disbursement Type *",
+        ["advance", "project_cost", "personal_loan"],
+        format_func=lambda x: {
+            "advance": "💰 Advance Disbursement (From collected advance)",
+            "project_cost": "💼 Project Cost Disbursement (Direct project expenses)",
+            "personal_loan": "👤 Personal Loan (Excluded from profit calculation)"
+        }[x],
+        help="Select the type of disbursement"
+    )
+    
+    # Step 2: Project Selection (outside form, only for project-related disbursements)
+    selected_project_id = None
+    if disbursement_type != "personal_loan":
+        st.markdown("### 📋 Step 2: Select Project")
+        
+        projects = get_projects_for_disbursement()
+        if not projects:
+            st.error("❌ No projects available for disbursement!")
+            return
+        
+        # Project selection with dynamic update
+        selected_project = st.selectbox(
+            "Select Project *",
+            options=[(p.id, f"{p.project_name} (PO: {p.po_number or 'N/A'})") for p in projects],
+            format_func=lambda x: x[1],
+            key="disbursement_project_selector"
+        )
+        selected_project_id = selected_project[0]
+        
+        # Show advance information dynamically (outside form)
+        if disbursement_type == "advance":
+            st.markdown("### 💰 Advance Information")
+            show_advance_info_dynamic(selected_project_id)
+    else:
+        st.markdown("### 💡 Personal Loan Information")
+        st.info("Personal loans are not linked to specific projects and don't affect project budgets.")
+    
+    # Step 3: Disbursement Details Form
+    st.markdown("### 📋 Step 3: Disbursement Details")
+    
     with st.form("new_disbursement_form"):
-        st.markdown("### 📋 Disbursement Information")
-        
-        # Disbursement Type Selection
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            disbursement_type = st.radio(
-                "Disbursement Type *",
-                ["advance", "project_cost", "personal_loan"],
-                format_func=lambda x: {
-                    "advance": "💰 Advance Disbursement (From collected advance)",
-                    "project_cost": "💼 Project Cost Disbursement (Direct project expenses)",
-                    "personal_loan": "👤 Personal Loan (Excluded from profit calculation)"
-                }[x],
-                help="Select the type of disbursement"
-            )
-        
-        with col2:
-            # Project selection (not needed for personal loans)
-            if disbursement_type != "personal_loan":
-                projects = get_projects_for_disbursement()
-                if not projects:
-                    st.error("❌ No projects available for disbursement!")
-                    st.stop()
-                
-                selected_project = st.selectbox(
-                    "Select Project *",
-                    options=[(p.id, f"{p.project_name} (PO: {p.po_number or 'N/A'})") for p in projects],
-                    format_func=lambda x: x[1]
-                )
-                project_id = selected_project[0]
-                
-                # Show advance information for advance disbursements
-                if disbursement_type == "advance":
-                    show_advance_info(project_id)
-            else:
-                project_id = None
-                st.info("💡 Personal loans are not linked to specific projects")
-        
         # Amount and date/time
         col1, col2 = st.columns(2)
         
@@ -3558,7 +3568,7 @@ def show_disbursement_form():
             help="Detailed description of what this disbursement is for"
         )
         
-        # Simplified Money Receipt Information
+        # Money Receipt Information
         st.markdown("### 💼 Money Receipt Information")
         
         if disbursement_type in ["advance", "project_cost"]:
@@ -3683,13 +3693,13 @@ def show_disbursement_form():
                     st.error("❌ Please provide both 'Received From' and 'Received By' information!")
                     return
             
-            if disbursement_type != "personal_loan" and not project_id:
+            if disbursement_type != "personal_loan" and not selected_project_id:
                 st.error("❌ Please select a project!")
                 return
             
             # Validate advance disbursement
-            if disbursement_type == "advance" and project_id:
-                validation_result = validate_advance_disbursement(project_id, amount)
+            if disbursement_type == "advance" and selected_project_id:
+                validation_result = validate_advance_disbursement(selected_project_id, amount)
                 if not validation_result['valid']:
                     st.error(validation_result['message'])
                     return
@@ -3700,7 +3710,7 @@ def show_disbursement_form():
             # Create disbursement
             if disbursement_type in ["advance", "project_cost"]:
                 create_disbursement_with_companies(
-                    project_id=project_id,
+                    project_id=selected_project_id,
                     disbursement_type=disbursement_type,
                     amount=amount,
                     disbursement_date=disbursement_datetime,
@@ -3710,7 +3720,7 @@ def show_disbursement_form():
                 )
             else:
                 create_disbursement(
-                    project_id=project_id,
+                    project_id=selected_project_id,
                     disbursement_type=disbursement_type,
                     amount=amount,
                     disbursement_date=disbursement_datetime,
@@ -3718,6 +3728,42 @@ def show_disbursement_form():
                     received_from=received_from,
                     received_by=received_by
                 )
+
+# Step 2: Add this new function to modules/financial.py
+
+def show_advance_info_dynamic(project_id):
+    """Show advance information that updates dynamically when project changes"""
+    db_ops = DatabaseOperations()
+    try:
+        project = db_ops.get_project_by_id(project_id)
+        if project:
+            advance_info = db_ops.get_project_advance_summary(project_id)
+            
+            if project.project_advance_amount and project.project_advance_amount > 0:
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Total Advance", f"৳{project.project_advance_amount:,.2f}")
+                
+                with col2:
+                    st.metric("Disbursed", f"৳{advance_info['total_disbursed']:,.2f}")
+                
+                with col3:
+                    remaining = project.project_advance_amount - advance_info['total_disbursed']
+                    st.metric("Remaining", f"৳{remaining:,.2f}")
+                
+                if remaining <= 0:
+                    st.warning("⚠️ No advance amount remaining for disbursement!")
+                elif remaining < 10000:
+                    st.warning(f"⚠️ Low advance balance: ৳{remaining:,.2f}")
+                else:
+                    st.success(f"✅ Available for disbursement: ৳{remaining:,.2f}")
+            else:
+                st.info("ℹ️ No advance amount set for this project. You can set advance amount in project settings.")
+    except Exception as e:
+        st.error(f"Error loading advance info: {str(e)}")
+    finally:
+        db_ops.close()
                 
 def create_disbursement_with_companies(project_id, disbursement_type, amount, disbursement_date, 
                                      description, received_from_company_id, received_by_company_id):

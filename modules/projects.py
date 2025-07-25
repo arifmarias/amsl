@@ -435,7 +435,7 @@ def show_new_project_form():
                     # Calculate financial values
                     vat_amount = total_po_value * (vat_rate / 100)
                     ait_amount = total_po_value * (ait_rate / 100)
-                    final_po_value = total_po_value + vat_amount - ait_amount
+                    final_po_value = total_po_value - vat_amount - ait_amount
                     
                     # Create project
                     project = db_ops.create_project(
@@ -659,7 +659,7 @@ def show_edit_project_form(project_id):
                     # Calculate financial values
                     vat_amount = total_po_value * (vat_rate / 100)
                     ait_amount = total_po_value * (ait_rate / 100)
-                    final_po_value = total_po_value + vat_amount - ait_amount
+                    final_po_value = total_po_value - vat_amount - ait_amount
                     
                     # Update project
                     project.project_name = project_name
@@ -922,7 +922,7 @@ def get_project_status_info(project):
     }
 
 def show_status_progression(project):
-    """Show project status progression"""
+    """Show enhanced project status progression with detailed stages"""
     db_ops = DatabaseOperations()
     try:
         # Check project activities
@@ -931,31 +931,234 @@ def show_status_progression(project):
         disbursements = db_ops.get_disbursements_by_project(project.id)
         profit_configs = db_ops.get_profit_sharing_configs_by_project(project.id)
         
+        # Check for project documents (placeholder for now)
+        initial_docs = False  # Will be implemented when document management is added
+        final_docs = False    # Will be implemented when document management is added
+        
         st.markdown("**📊 Project Progress:**")
         
-        # Progress indicators
+        # Enhanced progress indicators with more stages
         progress_items = [
             ("Project Created", True, "✅"),
             ("Financial Projections", len(projections) > 0, "✅" if len(projections) > 0 else "⏳"),
+            ("Initial Project Documentation", initial_docs, "✅" if initial_docs else "⏳"),
             ("Final Costs Tracked", len(final_costs) > 0, "✅" if len(final_costs) > 0 else "⏳"),
             ("Disbursements Made", len(disbursements) > 0, "✅" if len(disbursements) > 0 else "⏳"),
             ("Profit Configured", len(profit_configs) > 0, "✅" if len(profit_configs) > 0 else "⏳"),
+            ("Final Project Documentation", final_docs, "✅" if final_docs else "⏳"),
         ]
         
+        # Display progress items with better formatting
         for item, completed, icon in progress_items:
-            color = "green" if completed else "gray"
-            st.markdown(f"<span style='color: {color}'>{icon} {item}</span>", unsafe_allow_html=True)
+            if completed:
+                st.markdown(f"<span style='color: green; font-weight: bold;'>{icon} {item}</span>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<span style='color: gray;'>{icon} {item}</span>", unsafe_allow_html=True)
         
         # Calculate completion percentage
         completion_rate = sum(1 for _, completed, _ in progress_items if completed) / len(progress_items) * 100
         
+        # Progress bar with percentage
         st.progress(completion_rate / 100)
-        st.caption(f"Project Completion: {completion_rate:.0f}%")
+        st.caption(f"Project Completion: {completion_rate:.0f}% ({sum(1 for _, completed, _ in progress_items if completed)}/{len(progress_items)} stages)")
+        
+        # Show next recommended action
+        if completion_rate < 100:
+            next_action = None
+            for item, completed, _ in progress_items:
+                if not completed:
+                    next_action = item
+                    break
+            
+            if next_action:
+                st.info(f"💡 **Next Step:** {next_action}")
+                
+                # Provide helpful links for next actions
+                if next_action == "Financial Projections":
+                    if st.button("📋 Create Financial Projection", key=f"create_proj_{project.id}"):
+                        st.session_state.page = "financial"
+                        st.session_state.projection_project_id = project.id
+                        st.session_state.show_projection_form = True
+                        st.rerun()
+                
+                elif next_action == "Final Costs Tracked":
+                    if st.button("💰 Setup Final Costs", key=f"setup_costs_{project.id}"):
+                        st.session_state.page = "financial"
+                        st.rerun()
+                
+                elif next_action == "Disbursements Made":
+                    if st.button("💸 Create Disbursement", key=f"create_disb_{project.id}"):
+                        st.session_state.page = "financial"
+                        st.session_state.action = "new_disbursement"
+                        st.rerun()
+                
+                elif next_action == "Profit Configured":
+                    if st.button("🤝 Configure Profit Sharing", key=f"config_profit_{project.id}"):
+                        st.session_state.page = "projects"
+                        st.session_state.profit_sharing_project_id = project.id
+                        st.session_state.show_profit_sharing_form = True
+                        st.rerun()
+        else:
+            st.success("🎉 **Project Fully Configured!** All stages completed.")
         
     except Exception as e:
         st.error(f"Error loading progress: {str(e)}")
+        # Fallback to basic progress
+        st.markdown("**📊 Basic Progress:**")
+        st.success("✅ Project Created")
+        st.info("⏳ Additional progress tracking requires data loading")
     finally:
         db_ops.close()
+
+def show_enhanced_project_financial_tab(project, db_ops):
+    """Show enhanced financial tab with disbursements and key metrics - SIMPLIFIED VERSION"""
+    st.markdown("### 💰 Project Financial Overview")
+    
+    try:
+        # Get financial data for this project
+        disbursements = db_ops.get_disbursements_by_project(project.id)
+        advance_summary = db_ops.get_project_advance_summary(project.id)
+        projections = db_ops.get_initial_projections_by_project(project.id)
+        final_costs = db_ops.get_final_costs_by_project(project.id)
+        
+        # Calculate financial metrics
+        total_disbursed = sum(d.amount for d in disbursements)
+        advance_disbursed = sum(d.amount for d in disbursements if d.disbursement_type == 'advance')
+        project_cost_disbursed = sum(d.amount for d in disbursements if d.disbursement_type == 'project_cost')
+        personal_loan_disbursed = sum(d.amount for d in disbursements if d.disbursement_type == 'personal_loan')
+        
+        # Key Financial Metrics
+        st.markdown("#### 📊 Key Financial Metrics")
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.metric("Total PO Value", f"৳{project.total_po_value or 0:,.2f}")
+        
+        with col2:
+            st.metric("Final PO Value", f"৳{project.final_po_value or 0:,.2f}")
+        
+        with col3:
+            st.metric("Total Disbursed", f"৳{total_disbursed:,.2f}", 
+                     delta=f"{len(disbursements)} disbursements")
+        
+        with col4:
+            if project.project_advance_amount and project.project_advance_amount > 0:
+                remaining_advance = project.project_advance_amount - advance_disbursed
+                st.metric("Advance Remaining", f"৳{remaining_advance:,.2f}")
+            else:
+                st.metric("Advance Amount", "Not Set")
+        
+        with col5:
+            budget_remaining = (project.final_po_value or 0) - total_disbursed
+            delta_color = "normal" if budget_remaining >= 0 else "inverse"
+            st.metric("Budget Remaining", f"৳{budget_remaining:,.2f}", 
+                     delta_color=delta_color)
+        
+        # Financial Breakdown - ENHANCED WITH ADVANCE INFO
+        st.markdown("#### 💰 Financial Breakdown")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Project Values:**")
+            
+            # Build breakdown data with advance information
+            breakdown_data = [
+                {"Item": "Total PO Value", "Amount": f"৳{project.total_po_value or 0:,.2f}"},
+                {"Item": f"Less: VAT ({project.vat_rate or 15}%)", "Amount": f"৳{project.vat_amount or 0:,.2f}"},
+                {"Item": f"Less: AIT ({project.ait_rate or 2}%)", "Amount": f"৳{project.ait_amount or 0:,.2f}"},
+                {"Item": "**Final PO Value**", "Amount": f"**৳{project.final_po_value or 0:,.2f}**"}
+            ]
+            
+            # Add advance information row
+            if project.project_advance_amount and project.project_advance_amount > 0:
+                advance_percentage = project.project_advance_percentage or 0
+                breakdown_data.append({
+                    "Item": f"Advance Received ({advance_percentage:.1f}%)", 
+                    "Amount": f"৳{project.project_advance_amount:,.2f}"
+                })
+                
+                # Add remaining amount after advance
+                remaining_after_advance = (project.final_po_value or 0) - project.project_advance_amount
+                breakdown_data.append({
+                    "Item": "Remaining After Advance", 
+                    "Amount": f"৳{remaining_after_advance:,.2f}"
+                })
+            else:
+                breakdown_data.append({
+                    "Item": "Advance Received", 
+                    "Amount": "৳0.00 (No advance)"
+                })
+            
+            df_breakdown = pd.DataFrame(breakdown_data)
+            st.dataframe(df_breakdown, use_container_width=True, hide_index=True)
+        
+        with col2:
+            st.markdown("**Disbursement Summary:**")
+            if disbursements:
+                disb_summary_data = [
+                    {"Type": "Advance Disbursements", "Amount": f"৳{advance_disbursed:,.2f}"},
+                    {"Type": "Project Cost Disbursements", "Amount": f"৳{project_cost_disbursed:,.2f}"},
+                    {"Type": "Personal Loans", "Amount": f"৳{personal_loan_disbursed:,.2f}"},
+                    {"Type": "**Total Disbursed**", "Amount": f"**৳{total_disbursed:,.2f}**"}
+                ]
+                
+                df_disb_summary = pd.DataFrame(disb_summary_data)
+                st.dataframe(df_disb_summary, use_container_width=True, hide_index=True)
+            else:
+                st.info("No disbursements recorded for this project.")
+        
+        # Project Disbursements List
+        if disbursements:
+            st.markdown("#### 💸 Project Disbursements")
+            
+            # Prepare disbursement table data
+            disb_table_data = []
+            for disb in disbursements:
+                # Get money receipt info
+                try:
+                    money_receipt = db_ops.get_money_receipt_by_disbursement(disb.id)
+                    receipt_number = money_receipt.receipt_number if money_receipt else 'N/A'
+                    receipt_status = '✅ Complete' if money_receipt else '⏳ Pending'
+                except:
+                    receipt_number = 'N/A'
+                    receipt_status = '❌ Error'
+                
+                disb_table_data.append({
+                    'ID': f"#{disb.id}",
+                    'Type': disb.disbursement_type.replace('_', ' ').title(),
+                    'Amount': f"৳{disb.amount:,.2f}",
+                    'Date': disb.disbursement_date.strftime('%Y-%m-%d'),
+                    'Receipt': receipt_number,
+                    'Status': receipt_status,
+                    'Description': disb.description[:40] + "..." if len(disb.description or "") > 40 else (disb.description or "")
+                })
+            
+            df_disbursements = pd.DataFrame(disb_table_data)
+            st.dataframe(df_disbursements, use_container_width=True, hide_index=True)
+        
+        else:
+            st.markdown("#### 💸 Project Disbursements")
+            st.info("📭 No disbursements recorded for this project yet.")
+            
+            if project.project_advance_amount and project.project_advance_amount > 0:
+                st.success(f"💰 Advance Available: ৳{project.project_advance_amount:,.2f}")
+            else:
+                st.info("💡 No advance amount set for this project.")
+    
+    except Exception as e:
+        st.error(f"Error loading financial data: {str(e)}")
+        
+        # Fallback to basic financial display
+        st.markdown("#### 💰 Basic Financial Information")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Total PO Value", f"৳{project.total_po_value or 0:,.2f}")
+            st.metric("VAT Amount", f"৳{project.vat_amount or 0:,.2f}")
+        
+        with col2:
+            st.metric("AIT Amount", f"৳{project.ait_amount or 0:,.2f}")
+            st.metric("Final PO Value", f"৳{project.final_po_value or 0:,.2f}")
                    
 def show_project_details(project_id):
     """Show detailed view of a specific project"""
@@ -967,7 +1170,7 @@ def show_project_details(project_id):
         
         if project:
             # Project header
-            col1, col2, col3 = st.columns([2, 1, 1])
+            col1, col2= st.columns([2, 1])
             
             with col1:
                 st.markdown(f"## {project.project_name}")
@@ -984,13 +1187,8 @@ def show_project_details(project_id):
                 status_icon = status_colors.get(project.status, '⚪')
                 st.markdown(f"**Status:** {status_icon} {project.status.title()}")
             
-            with col3:
-                if st.button("✏️ Edit Project", key=f"edit_project_details_{project_id}"):
-                    st.session_state.edit_project_id = project_id
-                    st.rerun()
-            
             # Project information tabs
-            tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "💰 Financial", "📄 Documents", "📈 Progress"])
+            tab1, tab2, tab3 = st.tabs(["📊 Overview", "💰 Financial", "📄 Documents"])
             
             with tab1:
                 col1, col2 = st.columns(2)
@@ -1025,32 +1223,11 @@ def show_project_details(project_id):
                     show_status_progression(project)
             
             with tab2:
-                st.markdown("### 💰 Financial Details")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.metric("Total PO Value", f"৳{project.total_po_value:,.2f}")
-                    st.metric("VAT Amount", f"৳{project.vat_amount:,.2f}")
-                
-                with col2:
-                    st.metric("AIT Amount", f"৳{project.ait_amount:,.2f}")
-                    st.metric("Final PO Value", f"৳{project.final_po_value:,.2f}")
+                show_enhanced_project_financial_tab(project, db_ops)
             
             with tab3:
                 st.markdown("### 📄 Project Documents")
                 st.info("Document management will be implemented in later steps.")
-            
-            with tab4:
-                st.markdown("### 📈 Project Progress")
-                st.info("Progress tracking will be implemented in later steps.")
-                
-                # Mock progress data
-                progress_data = {
-                    'Phase': ['Planning', 'Design', 'Development', 'Testing', 'Deployment'],
-                    'Status': ['Completed', 'Completed', 'In Progress', 'Pending', 'Pending'],
-                    'Progress': [100, 100, 60, 0, 0]
-                }
-                st.dataframe(pd.DataFrame(progress_data), use_container_width=True)
         
         else:
             st.error(f"Project with ID {project_id} not found.")

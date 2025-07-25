@@ -258,52 +258,6 @@ def main():
                 st.session_state.show_db_status = True
                 st.rerun()
         
-        # Role-based quick stats
-        st.markdown("---")
-        st.markdown("### 📊 Quick Stats")
-        
-        try:
-            from database.operations import DatabaseOperations
-            db_ops = DatabaseOperations()
-            
-            if user['role'] == 'finance':
-                # Finance users see only financial stats
-                financial_stats = db_ops.get_all_financial_projections_summary()
-                
-                st.metric("Projects w/ Projections", financial_stats['projects_with_projections'])
-                if financial_stats['total_projection_amount'] > 0:
-                    st.metric("Total Projections", f"৳{financial_stats['total_projection_amount']:,.0f}")
-                st.metric("Projection Items", financial_stats['total_projection_items'])
-                
-            else:
-                # Other users see full stats
-                stats = db_ops.get_enhanced_project_statistics()
-                financial_stats = db_ops.get_all_financial_projections_summary()
-                
-                st.metric("Projects", stats['total_projects'])
-                st.metric("Active", stats['active_projects'])
-                st.metric("Completed", stats['completed_projects'])
-                
-                if stats['total_revenue'] > 0:
-                    st.metric("Revenue", f"৳{stats['total_revenue']:,.0f}")
-                
-                if financial_stats['total_projection_amount'] > 0:
-                    st.metric("Projections", f"৳{financial_stats['total_projection_amount']:,.0f}")
-                
-                if stats['completion_rate'] > 0:
-                    completion_color = "normal" if stats['completion_rate'] > 70 else "inverse"
-                    st.metric(
-                        "Completion Rate", 
-                        f"{stats['completion_rate']:.1f}%",
-                        delta=None,
-                        delta_color=completion_color
-                    )
-            
-            db_ops.close()
-            
-        except Exception as e:
-            st.info("Loading stats...")
-        
         # System status indicator
         st.markdown("---")
         st.markdown("### 🔧 System Status")
