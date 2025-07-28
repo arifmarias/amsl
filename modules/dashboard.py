@@ -6,20 +6,9 @@ import pandas as pd
 from database.operations import DatabaseOperations
 from modules.auth import AuthenticationManager
 import calendar
-# Add these new imports
-from utils.ui_components import (
-    create_modern_header, 
-    create_metric_card, 
-    create_section_header,
-    create_info_card,
-    create_status_badge,
-    create_empty_state
-)
-from utils.theme import ModernTheme
-from utils.chart_config import get_chart_layout, get_color_palette, style_pie_chart, style_bar_chart
 
 def show_dashboard():
-    """Enhanced dashboard page with modern UI"""
+    """Enhanced dashboard page with final costs integration"""
     
     user = AuthenticationManager.get_current_user()
     
@@ -32,11 +21,12 @@ def show_dashboard():
     else:
         greeting = "Good Evening"
     
-    # Use the new modern header
-    create_modern_header(
-        "📊 Project Management Dashboard",
-        f"{greeting}, {user['full_name']}! Here's your project overview for {datetime.now().strftime('%B %d, %Y')}"
-    )
+    st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #1f4e79, #2e86de); color: white; padding: 1.5rem; border-radius: 10px; text-align: center; margin-bottom: 2rem;">
+        <h1>📊 Project Management Dashboard</h1>
+        <p>{greeting}, {user['full_name']}! Here's your project overview for {datetime.now().strftime('%B %d, %Y')}</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Get comprehensive dashboard data
     dashboard_data = get_comprehensive_dashboard_data()
@@ -45,16 +35,15 @@ def show_dashboard():
         show_empty_dashboard()
         return
     
-    # Key Metrics Row - Using new component
-    show_enhanced_key_metrics(dashboard_data)
+    # Key Metrics Row - ENHANCED
+    show_key_metrics(dashboard_data)
     
-    # Rest of your dashboard code...
     # Charts Row
     col1, col2 = st.columns(2)
     with col1:
         show_project_status_distribution(dashboard_data)
     with col2:
-        show_cost_performance_chart(dashboard_data)
+        show_cost_performance_chart(dashboard_data)  # NEW CHART
     
     # Secondary Charts Row
     col1, col2 = st.columns(2)
@@ -68,83 +57,15 @@ def show_dashboard():
     with col1:
         show_recent_projects(dashboard_data)
     with col2:
-        show_enhanced_quick_actions(user['role'], dashboard_data)
+        show_enhanced_quick_actions(user['role'], dashboard_data)  # ENHANCED
     
     # Bottom Row - System Status and Activities
     col1, col2 = st.columns(2)
     with col1:
         show_project_timeline_analysis(dashboard_data)
     with col2:
-        show_profit_overview_summary(dashboard_data)
-
-def show_enhanced_key_metrics(data):
-    """Display key performance metrics with modern cards"""
-    create_section_header("Key Performance Indicators", "📈")
-    
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    
-    with col1:
-        completion_rate = (data['completed_projects'] / data['total_projects'] * 100) if data['total_projects'] > 0 else 0
-        st.metric(
-            label="Total Projects",
-            value=data['total_projects'],
-            delta=f"{completion_rate:.0f}% completed"
-        )
-    
-    with col2:
-        st.metric(
-            label="Active Projects",
-            value=data['active_projects'],
-            delta=f"+{data['recent_project_count']} this month"
-        )
-    
-    with col3:
-        st.metric(
-            label="Total Revenue",
-            value=f"৳{data['total_revenue']:,.0f}",
-            delta=f"৳{data['average_project_value']:,.0f} avg"
-        )
-    
-    with col4:
-        projection_amount = data['projection_stats'].get('total_projection_amount', 0)
-        st.metric(
-            label="Projected Costs",
-            value=f"৳{projection_amount:,.0f}",
-            delta=f"{data['projection_stats'].get('projects_with_projections', 0)} projects"
-        )
-    
-    with col5:
-        final_cost_amount = data['final_cost_stats'].get('total_real_cost', 0)
-        variance_pct = data['final_cost_stats'].get('variance_percentage', 0)
-        
-        # For negative variance (costs less than projected), show as positive
-        # For positive variance (costs more than projected), show as negative
-        delta_display = f"{abs(variance_pct):.1f}% variance"
-        if variance_pct > 0:
-            delta_display = f"-{delta_display}"
-        
-        st.metric(
-            label="Actual Costs",
-            value=f"৳{final_cost_amount:,.0f}",
-            delta=delta_display
-        )
-    
-    with col6:
-        profit_summaries = data.get('profit_summaries', [])
-        if profit_summaries:
-            avg_profit_margin = data.get('average_profit_margin', 0)
-            st.metric(
-                label="Avg Profit Margin",
-                value=f"{avg_profit_margin:.1f}%",
-                delta=f"{len(profit_summaries)} projects analyzed"
-            )
-        else:
-            total_disbursed = data['disbursement_stats'].get('total_amount', 0)
-            st.metric(
-                label="Total Disbursed",
-                value=f"৳{total_disbursed:,.0f}",
-                delta=f"{data['disbursement_stats'].get('total_count', 0)} receipts"
-            )
+        #show_financial_health_summary(dashboard_data)  # NEW SECTION
+        show_profit_overview_summary(dashboard_data)  # NEW SECTION
 
 def get_comprehensive_dashboard_data():
     """Get comprehensive data for dashboard analytics - ENHANCED WITH FINAL COSTS"""
@@ -315,11 +236,12 @@ def get_comprehensive_dashboard_data():
 
 def show_empty_dashboard():
     """Show dashboard when no data exists"""
-    create_empty_state(
-        title="Welcome to Your Project Dashboard!",
-        description="You haven't created any projects yet. Let's get started!",
-        icon="📊"
-    )
+    st.markdown("""
+    <div style="text-align: center; padding: 3rem; background-color: #f8f9fa; border-radius: 10px; margin: 2rem 0;">
+        <h2>📊 Welcome to Your Project Dashboard!</h2>
+        <p style="font-size: 1.2em; color: #6c757d;">You haven't created any projects yet. Let's get started!</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     
@@ -410,9 +332,11 @@ def show_key_metrics(data):
 # Add new function for cost performance chart
 def show_cost_performance_chart(data):
     """Show cost performance analysis chart"""
-    create_section_header("Cost Performance Analysis", "💰")
+    st.subheader("💰 Cost Performance Analysis")
     
     try:
+        import plotly.graph_objects as go
+        
         # Get cost data
         projected = data['projection_stats'].get('total_projection_amount', 0)
         actual = data['final_cost_stats'].get('total_real_cost', 0)
@@ -421,7 +345,7 @@ def show_cost_performance_chart(data):
         # Create cost comparison chart
         categories = ['Projected Costs', 'Actual Costs', 'Disbursed Amount']
         values = [projected, actual, disbursed]
-        colors = ['#3b82f6', '#10b981', '#f59e0b']  # Modern colors
+        colors = ['#007bff', '#28a745', '#ffc107']
         
         if any(values):
             fig = go.Figure(data=[
@@ -436,12 +360,11 @@ def show_cost_performance_chart(data):
             ])
             
             fig.update_layout(
-                height=400,
+                height=350,
                 xaxis_title="Cost Categories",
                 yaxis_title="Amount (৳)",
                 showlegend=False,
-                margin=dict(t=20, b=40, l=40, r=20),
-                font=dict(family="Inter, sans-serif")
+                margin=dict(t=20, b=20, l=20, r=20)
             )
             
             st.plotly_chart(fig, use_container_width=True)
@@ -453,7 +376,7 @@ def show_cost_performance_chart(data):
 
 def show_project_status_distribution(data):
     """Show project status distribution pie chart"""
-    create_section_header("Project Status Distribution", "📊")
+    st.subheader("📊 Project Status Distribution")
     
     if not data['status_counts']:
         st.info("No project status data available.")
@@ -463,16 +386,16 @@ def show_project_status_distribution(data):
     statuses = list(data['status_counts'].keys())
     counts = list(data['status_counts'].values())
     
-    # Modern color mapping for statuses
+    # Color mapping for statuses
     color_map = {
-        'new': '#f59e0b',      # Amber
-        'active': '#10b981',   # Green
-        'completed': '#3b82f6', # Blue
-        'on_hold': '#f97316',  # Orange
-        'cancelled': '#ef4444' # Red
+        'new': '#ffc107',      # Yellow
+        'active': '#28a745',   # Green
+        'completed': '#007bff', # Blue
+        'on_hold': '#fd7e14',  # Orange
+        'cancelled': '#dc3545' # Red
     }
     
-    colors = [color_map.get(status, '#6b7280') for status in statuses]
+    colors = [color_map.get(status, '#6c757d') for status in statuses]
     
     fig = go.Figure(data=[go.Pie(
         labels=[status.replace('_', ' ').title() for status in statuses],
@@ -484,17 +407,16 @@ def show_project_status_distribution(data):
     )])
     
     fig.update_layout(
-        height=400,
+        height=350,
         showlegend=True,
-        margin=dict(t=20, b=20, l=20, r=20),
-        font=dict(family="Inter, sans-serif")
+        margin=dict(t=20, b=20, l=20, r=20)
     )
     
     st.plotly_chart(fig, use_container_width=True)
 
 def show_revenue_analysis(data):
     """Show revenue analysis chart"""
-    create_section_header("Revenue Analysis", "💰")
+    st.subheader("💰 Revenue Analysis")
     
     # Create revenue breakdown data
     revenue_data = {
@@ -504,7 +426,7 @@ def show_revenue_analysis(data):
             data['active_revenue'],
             sum(p['final_po_value'] for p in data['projects'] if p['status'] == 'new')
         ],
-        'Color': ['#3b82f6', '#10b981', '#f59e0b']  # Modern colors
+        'Color': ['#28a745', '#007bff', '#ffc107']
     }
     
     fig = go.Figure(data=[
@@ -519,12 +441,11 @@ def show_revenue_analysis(data):
     ])
     
     fig.update_layout(
-        height=400,
+        height=350,
         xaxis_title="Project Category",
         yaxis_title="Revenue (৳)",
         showlegend=False,
-        margin=dict(t=20, b=40, l=40, r=20),
-        font=dict(family="Inter, sans-serif")
+        margin=dict(t=20, b=20, l=20, r=20)
     )
     
     st.plotly_chart(fig, use_container_width=True)

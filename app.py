@@ -7,8 +7,6 @@ from modules.dashboard import show_dashboard
 from modules.projects import show_projects
 from modules.settings import show_settings
 from modules.financial import show_financial
-# Import the new styling
-from utils.styles import get_modern_css
 
 # Page configuration
 st.set_page_config(
@@ -18,8 +16,107 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Apply modern CSS styling
-st.markdown(get_modern_css(), unsafe_allow_html=True)
+# Custom CSS for professional appearance
+st.markdown("""
+<style>
+    .main-header {
+        background: linear-gradient(90deg, #1f4e79, #2e86de);
+        color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    
+    .success-box {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 1rem;
+        border-radius: 5px;
+        margin: 1rem 0;
+    }
+    
+    .info-box {
+        background-color: #d1ecf1;
+        border: 1px solid #bee5eb;
+        color: #0c5460;
+        padding: 1rem;
+        border-radius: 5px;
+        margin: 1rem 0;
+    }
+    
+    .sidebar .sidebar-content {
+        background-color: #2c3e50;
+    }
+    
+    .auth-container {
+        background-color: #f8f9fa;
+        padding: 2rem;
+        border-radius: 10px;
+        border: 1px solid #dee2e6;
+        margin: 2rem 0;
+    }
+    
+    /* Custom styling for tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        padding-left: 20px;
+        padding-right: 20px;
+    }
+    
+    /* Status badges */
+    .status-badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    
+    .status-active { background-color: #d4edda; color: #155724; }
+    .status-completed { background-color: #d1ecf1; color: #0c5460; }
+    .status-pending { background-color: #fff3cd; color: #856404; }
+    
+    /* Dashboard specific styles */
+    .metric-card {
+        background: white;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
+        margin: 0.5rem 0;
+    }
+    
+    .chart-container {
+        background: white;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
+        margin: 0.5rem 0;
+    }
+    
+    /* Financial form styles */
+    .financial-item {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 5px;
+        border: 1px solid #dee2e6;
+        margin: 0.5rem 0;
+    }
+    
+    .projection-total {
+        background: linear-gradient(90deg, #28a745, #20c997);
+        color: white;
+        padding: 1rem;
+        border-radius: 8px;
+        text-align: center;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 def get_user_navigation_menu(user_role):
     """Get navigation menu based on user role"""
