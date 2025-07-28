@@ -1,9 +1,9 @@
-# utils/styles.py - Fixed Text Visibility CSS
+# utils/styles.py - Enhanced Modern CSS System
 
 from utils.theme import ModernTheme
 
 def get_modern_css():
-    """Get the complete enhanced modern CSS styling with proper text visibility"""
+    """Get the complete enhanced modern CSS styling"""
     return f"""
     <style>
         /* Import Google Fonts */
@@ -34,42 +34,20 @@ def get_modern_css():
             --transition: {ModernTheme.TRANSITION_NORMAL};
         }}
         
-        /* Global Styles - FIXED TEXT COLORS */
+        /* Global Styles */
         * {{
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }}
         
         /* Main App Container */
         .stApp {{
             background-color: var(--background);
-            color: var(--text-primary) !important;
         }}
         
-        /* Fix all text elements to be dark */
-        .stApp p, .stApp div, .stApp span, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {{
-            color: var(--text-primary) !important;
-        }}
-        
-        /* Fix form labels */
-        .stTextInput > label, .stSelectbox > label, .stTextArea > label, .stNumberInput > label, .stRadio > label {{
-            color: var(--text-primary) !important;
-            font-weight: 500 !important;
-        }}
-        
-        /* Fix markdown text */
-        .stMarkdown {{
-            color: var(--text-primary) !important;
-        }}
-        
-        /* Fix info, success, warning, error text */
-        .stAlert > div {{
-            color: var(--text-primary) !important;
-        }}
-        
-        /* Enhanced Header - LIGHTER BACKGROUND */
+        /* Enhanced Header */
         .modern-header {{
-            background: linear-gradient(135deg, #1e293b 0%, #334155 50%, #475569 100%);
-            color: {ModernTheme.TEXT_WHITE} !important;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            color: {ModernTheme.TEXT_WHITE};
             padding: 2.5rem;
             border-radius: var(--radius-xl);
             margin-bottom: 2rem;
@@ -86,13 +64,8 @@ def get_modern_css():
             left: 0;
             right: 0;
             bottom: 0;
-            background: linear-gradient(45deg, rgba(255,255,255,0.15) 0%, transparent 50%);
+            background: linear-gradient(45deg, rgba(255,255,255,0.1) 0%, transparent 50%);
             pointer-events: none;
-        }}
-        
-        .modern-header h1, .modern-header p {{
-            color: {ModernTheme.TEXT_WHITE} !important;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }}
         
         .modern-header h1 {{
@@ -106,30 +79,25 @@ def get_modern_css():
         
         .modern-header p {{
             font-size: {ModernTheme.FONT_SIZES['lg']};
-            opacity: 0.95;
+            opacity: 0.9;
             margin: 0.75rem 0 0 0;
             position: relative;
             z-index: 1;
             font-weight: 400;
         }}
         
-        /* Enhanced Sidebar - FIXED BUTTON TEXT */
+        /* Enhanced Sidebar */
         section[data-testid="stSidebar"] > div {{
             background-color: var(--surface);
             padding-top: 1.5rem;
             border-right: 1px solid var(--border);
         }}
         
-        /* Fix sidebar text */
-        section[data-testid="stSidebar"] * {{
-            color: var(--text-primary) !important;
-        }}
-        
         section[data-testid="stSidebar"] .stButton > button {{
-            background-color: var(--accent) !important;
-            color: {ModernTheme.TEXT_WHITE} !important;
-            border: 1px solid var(--accent);
-            font-weight: 600 !important;
+            background-color: {ModernTheme.TEXT_WHITE};
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            font-weight: 500;
             font-size: {ModernTheme.FONT_SIZES['sm']};
             padding: 0.75rem 1rem;
             border-radius: var(--radius-md);
@@ -140,21 +108,37 @@ def get_modern_css():
         }}
         
         section[data-testid="stSidebar"] .stButton > button:hover {{
-            background-color: var(--accent-hover) !important;
-            color: {ModernTheme.TEXT_WHITE} !important;
-            border-color: var(--accent-hover);
+            background-color: var(--accent);
+            color: {ModernTheme.TEXT_WHITE};
+            border-color: var(--accent);
             transform: translateX(4px);
             box-shadow: var(--shadow-md);
         }}
         
-        /* Specific fix for active/selected sidebar buttons */
-        section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
-            background-color: var(--accent) !important;
-            color: {ModernTheme.TEXT_WHITE} !important;
-            font-weight: 700 !important;
+        section[data-testid="stSidebar"] .stButton > button[data-selected="true"] {{
+            background-color: var(--accent);
+            color: {ModernTheme.TEXT_WHITE};
+            border-color: var(--accent);
         }}
         
-        /* Enhanced Metric Cards - FIXED TEXT */
+        /* Enhanced Cards */
+        .modern-card {{
+            background-color: var(--surface);
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            margin-bottom: 1.5rem;
+            transition: all var(--transition);
+            box-shadow: var(--shadow-sm);
+        }}
+        
+        .modern-card:hover {{
+            box-shadow: var(--shadow-md);
+            transform: translateY(-2px);
+            border-color: var(--accent-light);
+        }}
+        
+        /* Enhanced Metric Cards */
         [data-testid="metric-container"] {{
             background: {ModernTheme.TEXT_WHITE};
             padding: 1.5rem;
@@ -166,19 +150,25 @@ def get_modern_css():
             overflow: hidden;
         }}
         
-        [data-testid="metric-container"] * {{
-            color: var(--text-primary) !important;
-        }}
-        
         [data-testid="metric-container"]:hover {{
             box-shadow: var(--shadow-md);
             border-color: var(--accent-light);
             transform: translateY(-1px);
         }}
         
+        [data-testid="metric-container"]::before {{
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+        }}
+        
         [data-testid="metric-container"] [data-testid="metric-label"] {{
             font-size: {ModernTheme.FONT_SIZES['sm']};
-            color: var(--text-secondary) !important;
+            color: var(--text-secondary);
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.05em;
@@ -188,14 +178,20 @@ def get_modern_css():
         [data-testid="metric-container"] [data-testid="metric-value"] {{
             font-size: {ModernTheme.FONT_SIZES['2xl']};
             font-weight: 700;
-            color: var(--text-primary) !important;
+            color: var(--text-primary);
             line-height: 1.2;
+        }}
+        
+        [data-testid="metric-container"] [data-testid="metric-delta"] {{
+            font-size: {ModernTheme.FONT_SIZES['sm']};
+            font-weight: 500;
+            margin-top: 0.25rem;
         }}
         
         /* Enhanced Button Styles */
         .stButton > button {{
             background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
-            color: {ModernTheme.TEXT_WHITE} !important;
+            color: {ModernTheme.TEXT_WHITE};
             border: none;
             padding: 0.75rem 1.5rem;
             font-size: {ModernTheme.FONT_SIZES['sm']};
@@ -203,6 +199,8 @@ def get_modern_css():
             border-radius: var(--radius-md);
             transition: all var(--transition);
             box-shadow: var(--shadow-sm);
+            position: relative;
+            overflow: hidden;
         }}
         
         .stButton > button:hover {{
@@ -210,7 +208,40 @@ def get_modern_css():
             box-shadow: var(--shadow-md);
         }}
         
-        /* Enhanced Form Styles - FIXED TEXT */
+        .stButton > button:active {{
+            transform: translateY(0);
+            box-shadow: var(--shadow-sm);
+        }}
+        
+        .stButton > button::before {{
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }}
+        
+        .stButton > button:hover::before {{
+            left: 100%;
+        }}
+        
+        /* Secondary Button Style */
+        .secondary-button > button {{
+            background: {ModernTheme.TEXT_WHITE};
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }}
+        
+        .secondary-button > button:hover {{
+            background-color: var(--surface);
+            border-color: var(--accent);
+            color: var(--accent);
+        }}
+        
+        /* Enhanced Form Styles */
         .stTextInput > div > div > input,
         .stSelectbox > div > div > select,
         .stTextArea > div > div > textarea,
@@ -221,7 +252,6 @@ def get_modern_css():
             font-size: {ModernTheme.FONT_SIZES['sm']};
             transition: all var(--transition);
             background-color: {ModernTheme.TEXT_WHITE};
-            color: var(--text-primary) !important;
             font-weight: 400;
         }}
         
@@ -234,7 +264,7 @@ def get_modern_css():
             outline: none;
         }}
         
-        /* Enhanced Tab Styles - FIXED TEXT */
+        /* Enhanced Tab Styles */
         .stTabs [data-baseweb="tab-list"] {{
             gap: 0.25rem;
             background-color: var(--surface);
@@ -249,7 +279,7 @@ def get_modern_css():
             padding: 0 1.5rem;
             background-color: transparent;
             border-radius: var(--radius-md);
-            color: var(--text-secondary) !important;
+            color: var(--text-secondary);
             font-weight: 500;
             font-size: {ModernTheme.FONT_SIZES['sm']};
             transition: all var(--transition);
@@ -258,7 +288,7 @@ def get_modern_css():
         
         .stTabs [data-baseweb="tab"]:hover {{
             background-color: {ModernTheme.HOVER_OVERLAY};
-            color: var(--text-primary) !important;
+            color: var(--text-primary);
         }}
         
         .stTabs [aria-selected="true"] {{
@@ -268,17 +298,98 @@ def get_modern_css():
             font-weight: 600;
         }}
         
-        /* Enhanced Table Styles - FIXED TEXT */
+        /* Enhanced Status Badges */
+        .status-badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.375rem 0.875rem;
+            border-radius: 9999px;
+            font-size: {ModernTheme.FONT_SIZES['xs']};
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border: 1px solid;
+        }}
+        
+        .status-new {{
+            background-color: {ModernTheme.INFO_BG};
+            color: {ModernTheme.INFO};
+            border-color: {ModernTheme.INFO_BORDER};
+        }}
+        
+        .status-active {{
+            background-color: {ModernTheme.SUCCESS_BG};
+            color: {ModernTheme.SUCCESS};
+            border-color: {ModernTheme.SUCCESS_BORDER};
+        }}
+        
+        .status-completed {{
+            background-color: {ModernTheme.SUCCESS_BG};
+            color: {ModernTheme.SUCCESS};
+            border-color: {ModernTheme.SUCCESS_BORDER};
+        }}
+        
+        .status-on-hold {{
+            background-color: {ModernTheme.WARNING_BG};
+            color: {ModernTheme.WARNING};
+            border-color: {ModernTheme.WARNING_BORDER};
+        }}
+        
+        .status-cancelled {{
+            background-color: {ModernTheme.ERROR_BG};
+            color: {ModernTheme.ERROR};
+            border-color: {ModernTheme.ERROR_BORDER};
+        }}
+        
+        /* Enhanced Info Box Styles */
+        .info-box {{
+            background-color: {ModernTheme.INFO_BG};
+            border: 1px solid {ModernTheme.INFO_BORDER};
+            color: var(--text-primary);
+            padding: 1.25rem;
+            border-radius: var(--radius-md);
+            margin: 1rem 0;
+            border-left: 4px solid {ModernTheme.INFO};
+        }}
+        
+        .success-box {{
+            background-color: {ModernTheme.SUCCESS_BG};
+            border: 1px solid {ModernTheme.SUCCESS_BORDER};
+            color: var(--text-primary);
+            padding: 1.25rem;
+            border-radius: var(--radius-md);
+            margin: 1rem 0;
+            border-left: 4px solid {ModernTheme.SUCCESS};
+        }}
+        
+        .warning-box {{
+            background-color: {ModernTheme.WARNING_BG};
+            border: 1px solid {ModernTheme.WARNING_BORDER};
+            color: var(--text-primary);
+            padding: 1.25rem;
+            border-radius: var(--radius-md);
+            margin: 1rem 0;
+            border-left: 4px solid {ModernTheme.WARNING};
+        }}
+        
+        .error-box {{
+            background-color: {ModernTheme.ERROR_BG};
+            border: 1px solid {ModernTheme.ERROR_BORDER};
+            color: var(--text-primary);
+            padding: 1.25rem;
+            border-radius: var(--radius-md);
+            margin: 1rem 0;
+            border-left: 4px solid {ModernTheme.ERROR};
+        }}
+        
+        /* Enhanced Table Styles */
         .dataframe {{
             border: none !important;
             font-size: {ModernTheme.FONT_SIZES['sm']};
             border-radius: var(--radius-lg);
             overflow: hidden;
             box-shadow: var(--shadow-sm);
-        }}
-        
-        .dataframe * {{
-            color: var(--text-primary) !important;
         }}
         
         .dataframe thead tr th {{
@@ -308,49 +419,47 @@ def get_modern_css():
             border-right: 1px solid var(--border) !important;
         }}
         
-        /* Fix radio button labels */
-        .stRadio > div > label > div {{
-            color: var(--text-primary) !important;
+        /* Enhanced Plotly Chart Container */
+        .js-plotly-plot {{
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            padding: 1.5rem;
+            background: {ModernTheme.TEXT_WHITE};
+            box-shadow: var(--shadow-sm);
+            transition: all var(--transition);
         }}
         
-        /* Fix selectbox options */
-        .stSelectbox > div > div > div {{
-            color: var(--text-primary) !important;
+        .js-plotly-plot:hover {{
+            box-shadow: var(--shadow-md);
         }}
         
-        /* Fix checkbox labels */
-        .stCheckbox > label > div {{
-            color: var(--text-primary) !important;
-        }}
-        
-        /* Fix file uploader text */
-        .stFileUploader > div > div > div {{
-            color: var(--text-secondary) !important;
-        }}
-        
-        /* Fix expander headers */
+        /* Enhanced Expander */
         .streamlit-expanderHeader {{
             background-color: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
             padding: 1rem;
             font-weight: 600;
-            color: var(--text-primary) !important;
             transition: all var(--transition);
         }}
         
-        /* Success/Error Message Styling - FIXED TEXT */
+        .streamlit-expanderHeader:hover {{
+            background-color: {ModernTheme.BACKGROUND_ALT};
+            border-color: var(--accent-light);
+        }}
+        
+        /* Loading States */
+        .stSpinner > div {{
+            border-color: var(--accent) !important;
+        }}
+        
+        /* Success/Error Message Styling */
         .stSuccess {{
             background-color: {ModernTheme.SUCCESS_BG};
             border: 1px solid {ModernTheme.SUCCESS_BORDER};
             border-left: 4px solid {ModernTheme.SUCCESS};
             border-radius: var(--radius-md);
             padding: 1rem;
-            color: var(--text-primary) !important;
-        }}
-        
-        .stSuccess * {{
-            color: var(--text-primary) !important;
         }}
         
         .stError {{
@@ -359,11 +468,6 @@ def get_modern_css():
             border-left: 4px solid {ModernTheme.ERROR};
             border-radius: var(--radius-md);
             padding: 1rem;
-            color: var(--text-primary) !important;
-        }}
-        
-        .stError * {{
-            color: var(--text-primary) !important;
         }}
         
         .stWarning {{
@@ -372,11 +476,6 @@ def get_modern_css():
             border-left: 4px solid {ModernTheme.WARNING};
             border-radius: var(--radius-md);
             padding: 1rem;
-            color: var(--text-primary) !important;
-        }}
-        
-        .stWarning * {{
-            color: var(--text-primary) !important;
         }}
         
         .stInfo {{
@@ -385,11 +484,6 @@ def get_modern_css():
             border-left: 4px solid {ModernTheme.INFO};
             border-radius: var(--radius-md);
             padding: 1rem;
-            color: var(--text-primary) !important;
-        }}
-        
-        .stInfo * {{
-            color: var(--text-primary) !important;
         }}
         
         /* Hide Streamlit Branding */
@@ -426,6 +520,15 @@ def get_modern_css():
             
             .modern-header h1 {{
                 font-size: {ModernTheme.FONT_SIZES['2xl']};
+            }}
+            
+            .modern-card {{
+                padding: 1.25rem;
+                margin-bottom: 1rem;
+            }}
+            
+            [data-testid="metric-container"] {{
+                padding: 1rem;
             }}
         }}
     </style>

@@ -1,10 +1,10 @@
-# utils/chart_config.py - Fixed Chart Backgrounds
+# utils/chart_config.py
 
 from utils.theme import ModernTheme
 import plotly.graph_objects as go
 
 def get_chart_layout(title="", height=350):
-    """Get consistent chart layout configuration with white background"""
+    """Get consistent chart layout configuration"""
     return {
         'title': {
             'text': title,
@@ -16,28 +16,24 @@ def get_chart_layout(title="", height=350):
         },
         'font': {
             'family': 'Inter, sans-serif',
-            'color': ModernTheme.TEXT_PRIMARY  # Dark text
+            'color': ModernTheme.TEXT_SECONDARY
         },
-        'plot_bgcolor': 'white',  # Chart area background
-        'paper_bgcolor': 'white',  # Overall background
+        'plot_bgcolor': 'white',
+        'paper_bgcolor': 'white',
         'margin': dict(t=40, b=40, l=40, r=40),
         'height': height,
         'hovermode': 'closest',
         'hoverlabel': {
             'bgcolor': ModernTheme.PRIMARY,
             'font_size': 12,
-            'font_family': 'Inter, sans-serif',
-            'font_color': 'white'
+            'font_family': 'Inter, sans-serif'
         },
         'xaxis': {
             'gridcolor': ModernTheme.BORDER,
             'linecolor': ModernTheme.BORDER,
             'tickfont': {
                 'size': 11,
-                'color': ModernTheme.TEXT_PRIMARY  # Dark text
-            },
-            'titlefont': {
-                'color': ModernTheme.TEXT_PRIMARY
+                'color': ModernTheme.TEXT_SECONDARY
             }
         },
         'yaxis': {
@@ -45,10 +41,7 @@ def get_chart_layout(title="", height=350):
             'linecolor': ModernTheme.BORDER,
             'tickfont': {
                 'size': 11,
-                'color': ModernTheme.TEXT_PRIMARY  # Dark text
-            },
-            'titlefont': {
-                'color': ModernTheme.TEXT_PRIMARY
+                'color': ModernTheme.TEXT_SECONDARY
             }
         }
     }
@@ -67,48 +60,23 @@ def get_color_palette():
     ]
 
 def style_pie_chart(fig):
-    """Apply consistent styling to pie charts with white background"""
+    """Apply consistent styling to pie charts"""
     fig.update_traces(
         textposition='inside',
         textinfo='percent+label',
         hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>',
         marker=dict(
             line=dict(color='white', width=2)
-        ),
-        textfont=dict(color='white', size=12)  # White text on colored slices
+        )
     )
-    
-    # Ensure white background
-    fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font=dict(color=ModernTheme.TEXT_PRIMARY)
-    )
-    
     return fig
 
 def style_bar_chart(fig):
-    """Apply consistent styling to bar charts with white background"""
+    """Apply consistent styling to bar charts"""
     fig.update_traces(
         marker=dict(
             line=dict(color='white', width=1.5)
         ),
         hovertemplate='<b>%{x}</b><br>Value: %{y}<extra></extra>'
     )
-    
-    # Ensure white background
-    fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font=dict(color=ModernTheme.TEXT_PRIMARY),
-        xaxis=dict(
-            gridcolor=ModernTheme.BORDER,
-            tickfont=dict(color=ModernTheme.TEXT_PRIMARY)
-        ),
-        yaxis=dict(
-            gridcolor=ModernTheme.BORDER,
-            tickfont=dict(color=ModernTheme.TEXT_PRIMARY)
-        )
-    )
-    
     return fig

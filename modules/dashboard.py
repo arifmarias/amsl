@@ -26,7 +26,7 @@ def show_dashboard():
     
     user = AuthenticationManager.get_current_user()
     
-    # Modern header with dynamic greeting - FIXED VERSION
+    # Modern header with dynamic greeting
     current_hour = datetime.now().hour
     if current_hour < 12:
         greeting = "Good Morning"
@@ -38,61 +38,24 @@ def show_dashboard():
         greeting = "Good Evening"
         greeting_icon = "🌙"
     
-    # Enhanced header with inline CSS to force styling
+    # Enhanced header
     st.markdown(f"""
     <div style="
-        background: linear-gradient(135deg, #64748b 0%, #94a3b8 50%, #cbd5e1 100%);
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
         color: white;
         padding: 2.5rem;
         border-radius: 1rem;
         margin-bottom: 2rem;
         text-align: center;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-        border: 1px solid #e2e8f0;
     ">
-        <h1 style="margin: 0; font-size: 2.5rem; font-weight: 700; color: white; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">
+        <h1 style="margin: 0; font-size: 2.5rem; font-weight: 700;">
             📊 Project Management Dashboard
         </h1>
-        <p style="margin: 0.75rem 0 0 0; font-size: 1.1rem; opacity: 0.95; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+        <p style="margin: 0.75rem 0 0 0; font-size: 1.1rem; opacity: 0.9;">
             {greeting_icon} {greeting}, {user['full_name']}! Here's your project overview for {datetime.now().strftime('%B %d, %Y')}
         </p>
     </div>
-    """, unsafe_allow_html=True)
-    
-    # Add CSS to fix button text
-    st.markdown("""
-    <style>
-    /* Force sidebar button text to be white */
-    section[data-testid="stSidebar"] .stButton > button {
-        background: #2563eb !important;
-        color: white !important;
-        border: 1px solid #2563eb !important;
-        font-weight: 600 !important;
-    }
-    
-    section[data-testid="stSidebar"] .stButton > button:hover {
-        background: #1d4ed8 !important;
-        color: white !important;
-        border: 1px solid #1d4ed8 !important;
-    }
-    
-    /* Force all button text elements to be white */
-    section[data-testid="stSidebar"] .stButton > button * {
-        color: white !important;
-    }
-    
-    section[data-testid="stSidebar"] .stButton > button span {
-        color: white !important;
-    }
-    
-    section[data-testid="stSidebar"] .stButton > button p {
-        color: white !important;
-    }
-    
-    section[data-testid="stSidebar"] .stButton > button div {
-        color: white !important;
-    }
-    </style>
     """, unsafe_allow_html=True)
     
     # Get comprehensive dashboard data
@@ -484,7 +447,7 @@ def show_key_metrics(data):
 
 # Add new function for cost performance chart
 def show_cost_performance_chart(data):
-    """Show cost performance analysis chart with white background"""
+    """Show cost performance analysis chart"""
     create_section_header("Cost Performance Analysis", "💰")
     
     try:
@@ -506,29 +469,17 @@ def show_cost_performance_chart(data):
                     marker_color=colors,
                     text=[f"৳{val:,.0f}" for val in values],
                     textposition='auto',
-                    textfont=dict(color='white', size=12),
                     hovertemplate='<b>%{x}</b><br>Amount: ৳%{y:,.0f}<extra></extra>'
                 )
             ])
             
-            # Apply white background
             fig.update_layout(
                 height=400,
                 xaxis_title="Cost Categories",
                 yaxis_title="Amount (৳)",
                 showlegend=False,
                 margin=dict(t=20, b=40, l=40, r=20),
-                font=dict(family="Inter, sans-serif", color='#0f172a'),
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                xaxis=dict(
-                    gridcolor='#e2e8f0',
-                    tickfont=dict(color='#0f172a')
-                ),
-                yaxis=dict(
-                    gridcolor='#e2e8f0',
-                    tickfont=dict(color='#0f172a')
-                )
+                font=dict(family="Inter, sans-serif")
             )
             
             st.plotly_chart(fig, use_container_width=True)
@@ -539,7 +490,7 @@ def show_cost_performance_chart(data):
         st.info(f"Chart not available: {str(e)}")
 
 def show_project_status_distribution(data):
-    """Show project status distribution pie chart with white background"""
+    """Show project status distribution pie chart"""
     create_section_header("Project Status Distribution", "📊")
     
     if not data['status_counts']:
@@ -565,29 +516,22 @@ def show_project_status_distribution(data):
         labels=[status.replace('_', ' ').title() for status in statuses],
         values=counts,
         marker_colors=colors,
+        textinfo='label+percent+value',
         textposition='inside',
-        textinfo='percent+label',
-        textfont=dict(color='white', size=12),
         hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
     )])
     
-    # Apply white background and proper styling
     fig.update_layout(
         height=400,
         showlegend=True,
         margin=dict(t=20, b=20, l=20, r=20),
-        font=dict(family="Inter, sans-serif", color='#0f172a'),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        legend=dict(
-            font=dict(color='#0f172a')
-        )
+        font=dict(family="Inter, sans-serif")
     )
     
     st.plotly_chart(fig, use_container_width=True)
 
 def show_revenue_analysis(data):
-    """Show revenue analysis chart with white background"""
+    """Show revenue analysis chart"""
     create_section_header("Revenue Analysis", "💰")
     
     # Create revenue breakdown data
@@ -608,29 +552,17 @@ def show_revenue_analysis(data):
             marker_color=revenue_data['Color'],
             text=[f"৳{val:,.0f}" for val in revenue_data['Revenue']],
             textposition='auto',
-            textfont=dict(color='white', size=12),
             hovertemplate='<b>%{x}</b><br>Revenue: ৳%{y:,.0f}<extra></extra>'
         )
     ])
     
-    # Apply white background
     fig.update_layout(
         height=400,
         xaxis_title="Project Category",
         yaxis_title="Revenue (৳)",
         showlegend=False,
         margin=dict(t=20, b=40, l=40, r=20),
-        font=dict(family="Inter, sans-serif", color='#0f172a'),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        xaxis=dict(
-            gridcolor='#e2e8f0',
-            tickfont=dict(color='#0f172a')
-        ),
-        yaxis=dict(
-            gridcolor='#e2e8f0',
-            tickfont=dict(color='#0f172a')
-        )
+        font=dict(family="Inter, sans-serif")
     )
     
     st.plotly_chart(fig, use_container_width=True)
@@ -662,7 +594,7 @@ def show_company_distribution(data):
     st.plotly_chart(fig, use_container_width=True)
 
 def show_monthly_project_creation(data):
-    """Show monthly project creation trend with white background"""
+    """Show monthly project creation trend"""
     st.subheader("📅 Monthly Project Creation")
     
     monthly_data = data['monthly_creation_data']
@@ -681,32 +613,20 @@ def show_monthly_project_creation(data):
             x=month_labels,
             y=counts,
             mode='lines+markers',
-            line=dict(color='#3b82f6', width=3),
-            marker=dict(size=8, color='#3b82f6'),
+            line=dict(color='#007bff', width=3),
+            marker=dict(size=8, color='#007bff'),
             fill='tonexty',
-            fillcolor='rgba(59, 130, 246, 0.1)',
+            fillcolor='rgba(0, 123, 255, 0.1)',
             hovertemplate='<b>%{x}</b><br>Projects Created: %{y}<extra></extra>'
         )
     ])
     
-    # Apply white background
     fig.update_layout(
         height=350,
         xaxis_title="Month",
         yaxis_title="Projects Created",
         showlegend=False,
-        margin=dict(t=20, b=20, l=20, r=20),
-        font=dict(family="Inter, sans-serif", color='#0f172a'),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        xaxis=dict(
-            gridcolor='#e2e8f0',
-            tickfont=dict(color='#0f172a')
-        ),
-        yaxis=dict(
-            gridcolor='#e2e8f0',
-            tickfont=dict(color='#0f172a')
-        )
+        margin=dict(t=20, b=20, l=20, r=20)
     )
     
     st.plotly_chart(fig, use_container_width=True)
