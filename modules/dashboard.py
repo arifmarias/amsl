@@ -6,7 +6,7 @@ import pandas as pd
 from database.operations import DatabaseOperations
 from modules.auth import AuthenticationManager
 import calendar
-
+# Enhanced dashboard with final costs integration
 def show_dashboard():
     """Enhanced dashboard page with final costs integration"""
     
