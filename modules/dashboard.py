@@ -6,17 +6,14 @@ import pandas as pd
 from database.operations import DatabaseOperations
 from modules.auth import AuthenticationManager
 import calendar
-
-# Updated imports for new UI components
+# Add these new imports
 from utils.ui_components import (
     create_modern_header, 
-    create_enhanced_metric_card,  # Updated name
+    create_metric_card, 
     create_section_header,
     create_info_card,
     create_status_badge,
-    create_empty_state,
-    create_stat_grid,
-    create_progress_bar
+    create_empty_state
 )
 from utils.theme import ModernTheme
 from utils.chart_config import get_chart_layout, get_color_palette, style_pie_chart, style_bar_chart
@@ -26,37 +23,20 @@ def show_dashboard():
     
     user = AuthenticationManager.get_current_user()
     
-    # Modern header with dynamic greeting
+    # Header with dynamic greeting
     current_hour = datetime.now().hour
     if current_hour < 12:
         greeting = "Good Morning"
-        greeting_icon = "🌅"
     elif current_hour < 17:
         greeting = "Good Afternoon"
-        greeting_icon = "☀️"
     else:
         greeting = "Good Evening"
-        greeting_icon = "🌙"
     
-    # Enhanced header
-    st.markdown(f"""
-    <div style="
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
-        color: white;
-        padding: 2.5rem;
-        border-radius: 1rem;
-        margin-bottom: 2rem;
-        text-align: center;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-    ">
-        <h1 style="margin: 0; font-size: 2.5rem; font-weight: 700;">
-            📊 Project Management Dashboard
-        </h1>
-        <p style="margin: 0.75rem 0 0 0; font-size: 1.1rem; opacity: 0.9;">
-            {greeting_icon} {greeting}, {user['full_name']}! Here's your project overview for {datetime.now().strftime('%B %d, %Y')}
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Use the new modern header
+    create_modern_header(
+        "📊 Project Management Dashboard",
+        f"{greeting}, {user['full_name']}! Here's your project overview for {datetime.now().strftime('%B %d, %Y')}"
+    )
     
     # Get comprehensive dashboard data
     dashboard_data = get_comprehensive_dashboard_data()
@@ -65,10 +45,10 @@ def show_dashboard():
         show_empty_dashboard()
         return
     
-    # Enhanced Key Metrics
+    # Key Metrics Row - Using new component
     show_enhanced_key_metrics(dashboard_data)
     
-    # Rest of the dashboard continues with the existing functions...
+    # Rest of your dashboard code...
     # Charts Row
     col1, col2 = st.columns(2)
     with col1:
@@ -98,74 +78,71 @@ def show_dashboard():
         show_profit_overview_summary(dashboard_data)
 
 def show_enhanced_key_metrics(data):
-    """Display key performance metrics with enhanced but compatible cards"""
+    """Display key performance metrics with modern cards"""
+    create_section_header("Key Performance Indicators", "📈")
     
-    # Modern section header
-    st.markdown("## 📈 Key Performance Indicators")
-    st.markdown("*Real-time overview of your project portfolio*")
-    st.markdown("---")
-    
-    # Create metrics in a 3-column layout for better readability
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
         completion_rate = (data['completed_projects'] / data['total_projects'] * 100) if data['total_projects'] > 0 else 0
         st.metric(
-            "🏗️ Total Projects",
-            data['total_projects'],
+            label="Total Projects",
+            value=data['total_projects'],
             delta=f"{completion_rate:.0f}% completed"
-        )
-        
-        # Add some spacing
-        st.markdown("")
-        
-        projection_amount = data['projection_stats'].get('total_projection_amount', 0)
-        st.metric(
-            "📋 Projected Costs",
-            f"৳{projection_amount:,.0f}",
-            delta=f"{data['projection_stats'].get('projects_with_projections', 0)} projects"
         )
     
     with col2:
         st.metric(
-            "🚀 Active Projects",
-            data['active_projects'],
+            label="Active Projects",
+            value=data['active_projects'],
             delta=f"+{data['recent_project_count']} this month"
-        )
-        
-        st.markdown("")
-        
-        final_cost_amount = data['final_cost_stats'].get('total_real_cost', 0)
-        variance_pct = data['final_cost_stats'].get('variance_percentage', 0)
-        
-        st.metric(
-            "💸 Actual Costs",
-            f"৳{final_cost_amount:,.0f}",
-            delta=f"{variance_pct:+.1f}% variance"
         )
     
     with col3:
         st.metric(
-            "💰 Total Revenue",
-            f"৳{data['total_revenue']:,.0f}",
+            label="Total Revenue",
+            value=f"৳{data['total_revenue']:,.0f}",
             delta=f"৳{data['average_project_value']:,.0f} avg"
         )
+    
+    with col4:
+        projection_amount = data['projection_stats'].get('total_projection_amount', 0)
+        st.metric(
+            label="Projected Costs",
+            value=f"৳{projection_amount:,.0f}",
+            delta=f"{data['projection_stats'].get('projects_with_projections', 0)} projects"
+        )
+    
+    with col5:
+        final_cost_amount = data['final_cost_stats'].get('total_real_cost', 0)
+        variance_pct = data['final_cost_stats'].get('variance_percentage', 0)
         
-        st.markdown("")
+        # For negative variance (costs less than projected), show as positive
+        # For positive variance (costs more than projected), show as negative
+        delta_display = f"{abs(variance_pct):.1f}% variance"
+        if variance_pct > 0:
+            delta_display = f"-{delta_display}"
         
+        st.metric(
+            label="Actual Costs",
+            value=f"৳{final_cost_amount:,.0f}",
+            delta=delta_display
+        )
+    
+    with col6:
         profit_summaries = data.get('profit_summaries', [])
         if profit_summaries:
             avg_profit_margin = data.get('average_profit_margin', 0)
             st.metric(
-                "📈 Avg Profit Margin",
-                f"{avg_profit_margin:.1f}%",
+                label="Avg Profit Margin",
+                value=f"{avg_profit_margin:.1f}%",
                 delta=f"{len(profit_summaries)} projects analyzed"
             )
         else:
             total_disbursed = data['disbursement_stats'].get('total_amount', 0)
             st.metric(
-                "💳 Total Disbursed",
-                f"৳{total_disbursed:,.0f}",
+                label="Total Disbursed",
+                value=f"৳{total_disbursed:,.0f}",
                 delta=f"{data['disbursement_stats'].get('total_count', 0)} receipts"
             )
 
@@ -337,46 +314,31 @@ def get_comprehensive_dashboard_data():
         db_ops.close()
 
 def show_empty_dashboard():
-    """Show dashboard when no data exists - simplified version"""
+    """Show dashboard when no data exists"""
+    create_empty_state(
+        title="Welcome to Your Project Dashboard!",
+        description="You haven't created any projects yet. Let's get started!",
+        icon="📊"
+    )
     
-    # Center the empty state
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🏢 Add Companies", use_container_width=True):
+            st.session_state.page = "settings"
+            st.rerun()
     
     with col2:
-        st.markdown("""
-        <div style="
-            text-align: center;
-            padding: 4rem 2rem;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            border-radius: 1rem;
-            border: 2px dashed #cbd5e1;
-            margin: 2rem 0;
-        ">
-            <div style="font-size: 4rem; margin-bottom: 1.5rem;">🚀</div>
-            <h2 style="color: #1e293b; margin-bottom: 1rem;">Welcome to Your Project Dashboard!</h2>
-            <p style="color: #64748b; margin-bottom: 2rem;">You haven't created any projects yet. Let's get started with your first project!</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Action buttons
-        col_a, col_b, col_c = st.columns(3)
-        
-        with col_a:
-            if st.button("🏢 Add Companies", use_container_width=True):
-                st.session_state.page = "settings"
-                st.rerun()
-        
-        with col_b:
-            if st.button("📋 Create Project", use_container_width=True):
-                st.session_state.page = "projects"
-                st.session_state.action = "new_project"
-                st.rerun()
-        
-        with col_c:
-            if st.button("📖 View Guide", use_container_width=True):
-                st.info("📚 User guide coming soon! Start by adding companies and creating your first project.")
-                
-                
+        if st.button("➕ Create First Project", use_container_width=True):
+            st.session_state.page = "projects"
+            st.session_state.action = "new_project"
+            st.rerun()
+    
+    with col3:
+        if st.button("📋 Add Tasks", use_container_width=True):
+            st.session_state.page = "settings"
+            st.rerun()
+
 def show_key_metrics(data):
     """Display key performance metrics - ENHANCED WITH FINAL COSTS"""
     st.subheader("📈 Key Performance Indicators")
